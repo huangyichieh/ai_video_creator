@@ -1,0 +1,438 @@
+AI 故事影音自動化系統－技術開發規格書
+AI YouTuber / 故事型長短影音半自動製作平台
+版本：v0.3｜開發策略：先完成可人工審核的模組化 MVP，再逐步建立一致性資產、電影感動畫、可替換 Provider、系列 Canon 與發布分析。
+1. 文件目的
+本文件定義一套「人類負責創意與審核、AI 負責大量製作」的故事影音自動化系統。使用者提供故事大綱後，系統依序建立世界觀、角色、完整故事、劇本、分鏡、圖片/影片 Prompt、配音、字幕與影音素材，最後輸出 YouTube 長影片與 Shorts / TikTok / Reels 短影音。
+核心原則：模組彼此解耦、Provider 可替換、每個高成本步驟前都有 Review / Approve 關卡、所有生成結果都落地成可版本化的檔案與結構化 JSON。
+2. 產品目標與非目標
+2.1 產品目標
+第一階段先把「複製貼上與人工整理」消除：輸入一份故事大綱，系統即可建立完整 Story Project，並自動產出 story.json、script.md、scenes.json、image_prompts.json 等檔案。
+後續逐步擴充成素材與影片工廠，使人工主要集中在故事、分鏡與成片的審核，而不是逐步操作每個 AI 網站。
+2.2 初期非目標
+初期不追求完全無人化、不做高複雜度 Flutter 管理後台、不綁定單一影像/影片/TTS 供應商，也不先做大量自動發布。先證明內容品質、流程可重複、產出有人觀看，再擴大自動化。
+3. 整體架構
+系統改為以「UI / Application Orchestrator」統一協調六個核心層：Creative & Story Layer、Identity & Canon Layer、Performance & Animation Layer、Continuity & Quality Layer、Provider Platform Layer、Publishing & Analytics；底層由 Foundation Layer 與 Persistent Project / Series Data 共用支援。這樣可以把故事、角色身份、表演動畫、一致性檢查、模型替換與發布分析彼此解耦。
+
+圖 1－整體模組化架構。UI 僅透過 Application Orchestrator 操作各層；角色與系列狀態由 Identity & Canon Layer 管理，電影感表演與動畫集中在 Performance & Animation Layer；所有外部模型透過 Provider Platform Layer 接入，Analytics 再回饋 Story Planner 與 Model Router。
+4. 開發階段 Roadmap
+圖 2－開發階段與資料流。Phase 0～2 建立規格、故事與一致性資產；Phase 3 完成電影感動畫與 Performance Director；Phase 4 將模型平台化；Phase 5 延續系列 Canon；Phase 6 發布並將 Analytics 回饋故事策略與 Model Router。
+電影感／故事動畫的實作方式
+整套系統採「故事與導演規劃 → 角色/場景基礎資產 → 電影感動畫製作 → Provider 平台化 → 系列故事延續 → 發布與數據回饋」的方式逐步建立。
+核心做法是先用 LLM 把 Story、Dialogue、Storyboard 與角色意圖結構化，再用 Character Reference、Location Bible、voiceProfile 與 Performance metadata 固定角色與世界；動畫階段再由 Video / Voice / Performance / SFX 工具完成鏡頭、表演、配音、互動與特效，最後透過 Continuity QA 與 Compositing 合成成片。之後才把各模型抽象成可替換 Provider，並加入系列 Canon Memory 與發布分析。
+Phase 0－規格、資料結構與專案骨架
+目標：先定義資料格式與 Module Interface，避免後續每新增一個 AI 服務就重寫流程。
+主要工作：建立 Python 專案骨架、設定管理、Story Project 資料夾、manifest.json、共用 Pydantic Model、Provider Interface、Logging 與 Cost Tracker 基礎。
+完成條件：能建立新專案、保存/載入 manifest、讀取故事大綱、建立標準目錄；尚不要求生成任何圖片或影片。
+Phase 1－故事與導演規劃 MVP
+目標：輸入故事大綱後，自動完成世界觀、故事、劇本、自然對話、Storyboard、Shot 規劃與初步 Performance intent，並全部保存成本地結構化檔案。
+主要模組：Project Manager、World Builder、Character Generator、Story Planner、Story Generator、Script / Dialogue Generator、Dialogue Reviewer、Storyboard / Shot Planner、Prompt Generator、File Manager、Review / Approval、簡易 UI。
+人工關卡：Story Review、Storyboard Review。
+完成條件：執行一次 Pipeline 後可得到完整 Story Project，且可中斷、修改、重新生成單一模組並 Resume。
+Phase 2－角色與場景基礎資產
+目標：在大量動畫生成前先建立可重用的一致性資產，固定角色外觀、服裝、聲線設定、場景空間、主要道具與整體 Style Reference。
+主要模組：Character Reference Pack Builder、Location Bible Builder、Style Reference Builder、Prop / Costume Registry、voiceProfile Manager、Reference QA、Asset Cache。此階段以『身份與世界資產』為主，不大量生成最終動畫、完整配音或字幕。
+人工關卡：角色外觀核准、關鍵背景核准、素材批次 Review。
+完成條件：每個主要角色都有核准的 Reference Pack 與 voiceProfile；重要場景都有 Location Bible；服裝、道具與 Style Reference 可由 ID 跨 Scene 重用，Phase 3 可直接引用這些資產進行動畫與表演生成。
+Phase 3－全場景動畫化與跨場景一致性
+現況：Phase 3 已可產生幻燈片＋旁白影片。下一版目標是把每個 Scene 轉成真正的動畫 Shot，並讓相鄰鏡頭在角色、背景、聲音、情緒與動作上能連續銜接。
+核心流程：Approved Storyboard → Scene/Shot Animation Plan → Character/Background Reference Pack → Image/Video Generation → Performance & Voice → Continuity Check → Scene Chaining → Timeline Composer → Final Review。
+圖 3－電影感／故事動畫 AI Pipeline。Phase 3 負責把已核准故事真正做成有表演、配音、場景互動與特效的動畫；Phase 4 再把各 AI 模型平台化成可替換 Provider。
+
+主要模組：Animation Director、Shot Planner、Performance Director、Video Generator、Performance Renderer、Voice / Dialogue Renderer、Scene Interaction Planner、Scene Chaining、SFX / Ambience Planner、CG-VFX / Compositing、Character / Scene / Performance Consistency Checker、Timeline Composer、Retry / Failure Handler。嘴型同步不列為核心模組，只在換配音、多語版本、嘴部特寫或 QA 判定不同步時做條件式後處理。
+Character Identity：每個角色固定 face/body/costume/props/style reference；每個 Shot 生成時都附帶 Character ID 與 Reference Pack，不允許只靠文字重新描述角色。
+Scene Identity：固定場景需建立 Location Bible，保存背景 Reference、空間配置、主要物件、光線、時間、色調與鏡頭方向；同一場景換鏡位時優先以 reference / first-frame / last-frame 延續，而不是重新 Text-to-Video。
+Performance Identity：每個角色需固定 Voice ID、性別、年齡感、口音、語速、音域與表演風格；每句 dialogue 另外附 emotion、intensity、pause、gesture、facialExpression，避免只把純文字直接送進 TTS。
+Phase 3 核心：Performance Director
+Performance Director 是電影感動畫的中央表演控制層。它不直接生成影片，而是把劇本中的角色意圖轉成可供配音、角色動畫、鏡頭與 SFX 共用的表演資料，避免 Voice、Animation、SFX 三套模型各自猜一次角色應該怎麼演。
+每句 Dialogue 建議產生 Performance JSON，至少包含 characterId、text、subtext、emotion、emotionIntensity、pace、volume、pauseBeforeMs、pauseAfterMs、facialExpression、gesture、bodyAction、eyeDirection、cameraReaction、sfxCue。
+配音流程：Performance Director → voiceProfile / Voice ID → 情緒、語速、停頓與強度 → TTS / Dialogue Model。角色 Voice ID 必須從 Character Bible 查表取得，禁止 TTS 自行猜測性別或聲線。重要情緒場景可生成多個 Take，再由 Quality Selector 或人工選擇最佳版本。
+角色表演流程：Performance JSON → Performance Model → facial expression、mouth movement、head movement、gesture、body action。對話鏡頭可使用 Runway Act-Two 類 performance-driven 工具；一般電影鏡頭由主要 Video Model 依 Shot Planner 與 Reference Pack 生成。只有在最終配音更換、多語版本、嘴部特寫或 QA 判定嘴型不同步時，才額外做 lip-sync 後處理。
+場景互動流程：Shot Planner 必須把『角色做什麼』與『角色和什麼互動』拆成明確 action，例如 open door、pick up glass、hand object to another character、sit on chair，而不是只描述畫面氣氛。複雜動作應拆成 3～8 秒的小 Shot，再由 Timeline Composer 合成。
+SFX / Ambience 流程：Performance Director 與 Shot Planner 共同產生 sfxCue 與 ambienceCue，例如 footsteps_wet_concrete、door_slam_heavy、rain_window、cloth_movement、cinematic_riser。SFX 可由生成式音效工具產生，再於 Timeline Composer 與 Dialogue、BGM 分軌混音。
+CG / VFX 流程：煙、火、雨、雪、雷電、粒子、能量、HUD 等效果優先視為獨立 Effect Layer；先生成穩定 Base Animation，再使用 Compositing / Overlay 疊加特效。只有當效果與角色動作高度耦合時，才交由 Video Model 一次生成。
+Phase 3 工具原則：沿用 LLMProvider 的預設模型 GPT-6.1 Sol 產生 Story / Script / Performance metadata；主動畫以 Kling O3 Pro 為預設；Runway Act-Two 僅用於角色表演重要的對話近景；ElevenLabs Eleven v4 負責角色配音、ElevenLabs Sound Effects 負責自動 SFX；FFmpeg 負責自動合成。Veo / Gemini Video、Runway Gen-4.5、MiniMax 等模型保留為人工 fallback，正式自動 Router 與跨 Provider Benchmark 放在 Phase 4。
+Phase 3 的工具策略不是支援所有模型，而是先固定一套主力 Pipeline，把『聲音自然、角色會演、場景會互動、鏡頭可銜接、特效有層次』做穩。模型自由切換、Benchmark 與 Auto Router 留到 Phase 4。
+場景連貫策略：Shot N 的結尾 frame 可成為 Shot N+1 的 start frame；若模型支援 first/last frame 或 clip extension，優先使用。必要時保留 0.5～1.5 秒動作重疊，後製再切點，避免鏡頭間角色姿勢瞬間跳變。
+人工關卡：角色 Reference Approve、關鍵場景 Reference Approve、Dialogue/Performance Preview、Final Scene Continuity Review。
+完成條件：每個 Scene 都是動畫 Clip；同角色跨 Scene 的臉、髮型、服裝與聲音維持一致；同一地點的背景結構不漂移；對白有自然情緒與停頓；Scene 之間沒有明顯姿勢、光線或聲線跳變。
+Phase 3 最小平衡模型組合：GPT-6.1 Sol 負責 Story / Script / Performance metadata；主動畫使用 Kling O3 Pro；只有角色表演重要、嘴部清楚可見的對話近景才使用 Runway Act-Two；角色配音使用 ElevenLabs Eleven v4，音效使用 ElevenLabs Sound Effects；最終合成使用 FFmpeg。Veo、Runway Gen-4.5 暫不列為 Phase 3 必要依賴，只在主模型無法達到品質時再選用。若換配音、多語版本、嘴部特寫或 QA 判定嘴型不同步，再加條件式 lip-sync 後處理；模型自動切換與 Router 留到 Phase 4。
+Phase 4－可替換模型與動畫 Provider Layer
+目標：把 LLM / Image / Video / Performance / Voice / Dialogue / SFX 模型完全抽象化，使 UI、Storyboard 與 Story Project 不依賴單一廠商。可針對不同 Scene 自動選擇最適合的模型，並以成本、品質、速度與一致性評分。
+建議介面：LLMProvider、ImageProvider、VideoProvider、PerformanceProvider、TTS / DialogueProvider、SFXProvider。所有 Provider 回傳統一 GeneratedAsset，至少包含 provider、model、referenceIds、prompt、duration、cost、seed/settings、qualityScore 與 sourceSceneId。
+Phase 4 Provider 分類與可替換服務
+Phase 4 以能力介面而不是廠牌為核心。每個 Provider 都使用固定 Input / Output Schema；Model Router 只決定實際使用哪個 model / service，因此更換模型不應影響 Storyboard、Performance JSON、Character、Scene 或 UI。
+LLMProvider
+責任：Story / Script / Dialogue / Performance Metadata / Consistency 等文字與結構化推理。所有模型必須輸出相同 Structured Output Schema。
+
+
+
+模型 / 服務
+優點
+缺點
+建議用途
+GPT-6.1 Sol
+品質、速度與成本最均衡；適合長篇故事、劇本、Performance metadata、Structured Output 與一般推理
+成本高於 Luna；對大量低價值批次任務可能過度
+預設 LLMProvider；Story、Script、Dialogue、Performance、Consistency
+GPT-6 Astra
+能力最強，適合複雜推理、長篇規劃、跨集 Canon / Timeline 衝突檢查與重要故事決策
+價格最高、延遲較高，不適合大量例行生成
+高難度 Story Planning、Canon QA、關鍵品質複核
+GPT-6 Luna
+成本與延遲最低，適合大量結構化整理、分類、metadata、初稿與低風險批次工作
+複雜故事推理、角色細膩度與長距離一致性通常不如 Sol / Astra
+Metadata、tagging、初步摘要、低成本預處理與批次任務
+GPT-5.6 Sol
+成熟且可作既有 Prompt / Schema 的相容基準；能力仍足以處理故事與結構化生成
+已不是最新主力；新功能與成本效益應與 GPT-6 系列重新 Benchmark
+既有流程相容、A/B Benchmark、必要時作 fallback
+
+目前建議：預設使用 GPT-6.1 Sol；GPT-6 Astra 只用於高難度 Story Planning、跨集 Canon / Timeline 衝突檢查與關鍵 QA；GPT-6 Luna 用於 metadata、分類、摘要與大量低成本批次任務；GPT-5.6 Sol 保留作既有 Prompt / Schema 相容與 Benchmark fallback。
+ImageProvider
+責任：Character / Location / Style Reference、First Frame、Last Frame 與需要一致性的靜態視覺資產。
+
+模型 / 服務
+優點
+缺點
+建議用途
+Runway Gen-4 Image
+高品質 Reference 圖片工作流，且與 Runway 動畫生態整合度高
+相較 Turbo 類預覽模型成本較高、速度較慢
+正式核准的 Character / Location / Style Reference
+Runway Gen-4 Image Turbo
+Reference 與 Preview 迭代速度快、成本較低
+相較高品質 Image Model 可能犧牲部分細節與穩定性
+Preview、快速迭代與非關鍵 Reference Asset
+
+目前建議：高品質 Reference 使用 Gen-4 Image；大量 Preview / Retry 可優先使用 Gen-4 Image Turbo。
+VideoProvider
+責任：Text / Image / Reference-to-Video、Video-to-Video、First / Last Frame、Scene Extension、Multi-shot 與 cinematic motion。Model Router 依 shotType、reference consistency、motion、latency、cost 選擇。
+
+模型 / 服務
+優點
+缺點
+建議用途
+Kling O3 Pro
+適合大量 Reference 的工作流，對重複角色／場景一致性與 Video-to-Video 修正較有優勢
+需額外維護模型路徑，且必須實測原生 API 可用性、成本與 Retry Rate
+預設用於角色／場景一致性要求高的鏡頭
+Kling 3.0 Pro
+通用電影感生成、動作場景與 Multi-shot 能力佳
+嚴格角色身份一致性可能比 Reference-heavy 工作流需要更多 Retry
+一般電影感／動作鏡頭與備援
+Runway Gen-4.5
+Text/Image-to-Video、Camera/Motion 控制強，Developer Workflow 較成熟
+若每個 Shot 都使用成本可能偏高，長距離角色 Identity 維持不一定最優
+複雜鏡頭運動與視覺備援
+Google Gemini Video / GA Veo
+電影感場景生成強，適合 Keyframe / Reference 與 Scene Extension 工作流
+API／模型供應路徑可能調整，Google Cloud 設定相對較重
+環境鏡頭、電影感段落與偏 Continuity 的生成
+MiniMax H3 / H3 Max
+可增加 Video Model 多樣性，適合作為備援與 Benchmark
+在完成專案實際品質／成本測試前不建議成為核心依賴
+備援與 Phase 4 Benchmark 候選
+
+目前建議：Phase 3 預設 Kling O3 Pro；Phase 4 Router 再加入 Kling 3.0 Pro、Runway Gen-4.5、Gemini Omni Flash / GA Veo、MiniMax H3 系列作 fallback 或特定鏡頭路由。
+PerformanceProvider
+責任：把 Performance JSON 或 driving performance 轉為角色表情、頭部、肢體、動作與對話表演。嘴型同步不另外設為必要 Provider，而視為條件式後處理：只有在動畫完成後更換最終配音、多語言配音、嘴部特寫對同步要求高，或 QA 判定嘴型與 Dialogue Audio 明顯不同步時才啟用；一般鏡頭直接使用 Video / Performance 模型的原生說話表現即可。
+
+模型 / 服務
+優點
+缺點
+建議用途
+Runway Act-Two
+可有效轉移表情、頭部與身體動作，適合有演技需求的對話鏡頭
+需要合適的 driving performance / reference，並增加一次生成步驟與成本
+對話近景、情緒表演與角色主導鏡頭
+
+目前建議：Runway Act-Two 作為主要 PerformanceProvider，只用在角色表演重要的鏡頭，不需要每個 Shot 都執行。若未來加入 Sync Labs 等專門嘴型同步服務，應視為 Performance / Video 之後的可選後處理，不列為核心 Provider。
+TTS / DialogueProvider
+責任：使用固定 voiceProfile / voiceId 產生角色對白、旁白、情緒、停頓與多角色 Dialogue Audio。
+
+模型 / 服務
+優點
+缺點
+建議用途
+Eleven v4
+情緒表現力佳，可固定 Voice Identity，並支援 Audio / Emotion 控制
+單句台詞效果仍高度依賴 Performance metadata 與 Prompt 品質
+預設角色與旁白 Voice
+Text to Dialogue
+多角色 Dialogue 與對話節奏的上下文處理較好
+輸入較複雜，對簡單旁白或單句台詞可能過度
+雙人／多角色戲劇性對話
+
+目前建議：角色一般台詞使用 Eleven v4；多角色對話或需要上下文表演時使用 Text to Dialogue；兩者共用同一 ElevenLabs 帳號與 Voice ID。
+SFXProvider
+責任：依 sfxCue / ambienceCue 產生 Foley、環境音與 cinematic sound effects，輸出獨立 AudioAsset 供 Timeline Composer 混音。
+
+服務
+優點
+缺點
+建議用途
+ElevenLabs Sound Effects
+API 導向，可與配音共用 ElevenLabs 帳號，且容易依 cue 產生音效
+增加音效生成成本，產出仍需做混音與音量 QA
+預設自動化 SFX / Ambience
+Adobe Firefly 服務s
+適合 Adobe Creative / VFX 生態與後製工作流
+目前公開自動化路徑對專用 SFX 生成較不直接
+次要／人工 Media 與 VFX 工作流
+
+目前建議：ElevenLabs Sound Effects 作為自動 Pipeline 預設；Adobe Firefly 服務s 暫留作後製 / VFX 生態候選，而不是核心 SFX API。
+AggregatorProvider
+責任：透過單一 API / Credential 提供多家底層模型，降低 Adapter 與 Secret 數量；核心 Schema 仍保持 vendor-neutral，避免 Aggregator lock-in。
+
+服務
+優點
+缺點
+建議用途
+Runway Dev
+單一 Credential / API 可存取 Runway 與多個第三方模型家族，較容易快速建立 Router
+Aggregator 的價格／功能可能與原生 API 不同，且增加平台依賴
+Phase 4 快速整合與 fallback routing
+原生 Provider API
+可取得完整廠商專屬控制，價格／功能也可能更有優勢
+需要更多 Credential、Adapter 與維護工作
+當原生 API 有明確優勢時再選擇性加入
+
+目前建議：Phase 4 可以先用 Runway Dev 快速做 Model Router；當某模型的原生 API 在價格、功能或穩定性上更好，再加 Native Provider Adapter。
+Production工具Adapter
+責任：Timeline、Audio Mix、Subtitle、Overlay、CG/VFX、Color、Render 與人工最後精修。這些工具不是 Generative Model Provider，但應透過 Adapter 與 Pipeline 解耦。
+
+工具
+優點
+缺點
+建議用途
+FFmpeg
+結果可重現、可腳本化、速度快且無 API 費用，適合批次 Render／Audio Mix／Overlay
+不是 AI Editor，複雜創意調色／VFX 自動化較麻煩
+預設自動 Render 與合成
+DaVinci Resolve / Fusion
+調色、Compositing、VFX 與專業 finishing 能力強
+工作流較重，自動化較複雜，通常仍需要人工 Review
+高價值電影感 finishing
+CapCut
+人工剪輯、字幕與社群版本 finishing 快且容易
+較不適合作為穩定 Backend Dependency 或 deterministic pipeline
+選配的快速人工微調
+
+目前建議：FFmpeg 負責自動化；DaVinci Resolve / Fusion 負責高價值人工電影感精修；CapCut 僅作快速人工調整，不作核心依賴。
+Model Router
+Router 先在同一 Provider 中換 model，再跨 Provider fallback。Video、Voice、SFX、Performance 使用各自 Router，避免更換影片模型時同時改變角色聲音或音效風格。所有路由決策記錄 provider、model、reason、cost、latency、qualityScore 與 retryCount。
+模型評測：準備固定 Benchmark Scenes（近景說話、走路、兩人對話、同背景不同角度、高動作鏡頭），定期比較 Identity Consistency、Background Consistency、Motion Quality、Prompt Adherence、Dialogue Naturalness、Generation Cost、Retry Rate。
+完成條件：至少能在兩個 Video Model / Provider 間切換，且 LLM / Image / Video / Performance / TTS-Dialogue / SFX 都透過固定 Provider Interface；更換模型不修改 Story / Storyboard / Performance Schema；UI 可指定 Provider 或使用 Auto Router。語音若目前僅使用 ElevenLabs，先支援 Eleven v4 / Text to Dialogue 的 model-level 切換即可，不強制第二家 TTS Provider。
+Phase 5－系列故事延續與 Canon Memory
+目標：讓新一集能延續先前故事、角色成長與世界狀態，同時避免人物關係、時間線、能力、地點、已死亡角色或未解伏筆互相衝突。
+新增資料：series.json、canon.json、timeline.json、character_state.json、relationship_graph.json、location_state.json、unresolved_threads.json、episode_summary.json。
+每集完成後建立 Episode Memory：紀錄本集發生的事件、角色獲得/失去的物品、關係變化、傷勢/能力、秘密揭露、地點變化、時間點、已解與未解伏筆；這些資料在下一集 Story Generation 前自動 Retrieval。
+Story Planner 在寫新集前先產生 Continuity Brief：列出目前時間點、可用角色、角色目標、禁止矛盾事項、未完成故事線與可延伸伏筆，再依此產生新故事大綱。
+Continuity Checker 在故事與劇本生成後再比對 Canon；發現衝突時不得直接往下進 Storyboard，而是輸出 conflict report，例如：角色已死亡卻出現、角色不知道某秘密卻直接引用、同一天出現在兩個地點、武器已損毀卻再次使用。
+系列內容建議：Canon 分成 immutable facts（不可改）、mutable state（會隨劇情更新）、unknown/rumor（尚未證實）；避免把所有舊故事全文塞進 Prompt，應使用 structured memory + retrieval，只注入本集真正相關的設定。
+完成條件：可從上一集直接建立下一集；新故事在產生前會取得 Continuity Brief；生成後必須通過 Canon/Timeline/Character State 檢查；每集結束會自動更新系列狀態。
+Phase 6－發布、短影音與數據優化
+目標：一份故事同時產出長影片與多支短影音，並根據 CTR、觀看時長、完播率、訂閱轉換與成本優化下一批內容；分析結果同時回饋 Story Planner 與 Model Router。
+主要模組：Shorts Generator、Thumbnail Generator、Metadata Generator、Publisher、Analytics Collector、Performance Analyzer。
+完成條件：可由一支長片選出 Hook / Twist / Cliffhanger，自動重排成 9:16 短片草稿，並保存發布與成效資料；後續分析結果可回饋 Story Planner 與 Model Router。
+
+5. 模組規格
+5.1 Project Manager
+職責：建立 projectId、專案名稱、語言、影片長度、狀態與目前步驟；管理 Resume / Retry / Regenerate；寫入 manifest.json。
+建議狀態：draft → story_generated → story_approved → storyboard_generated → assets_ready → rendered → published。
+5.2 World Builder
+輸入：故事大綱、題材與既有世界觀。輸出：world.json。內容包括年代、世界規則、科技/魔法規則、組織、地點、時間線與禁止矛盾事項。
+5.3 Character Generator
+輸入：大綱與 world.json。輸出：characters/*.json 與 Character Bible。欄位包含角色 ID、姓名、年齡、外貌、服裝、性格、背景、說話方式、Voice ID、Reference Image 與不可變特徵。
+5.4 Story Generator
+輸入：outline + world + characters。輸出：story.json 與 story.md。需包含 Hook、Setup、Conflict、Escalation、Twist、Climax、Ending，並控制目標片長。
+5.5 Story Reviewer / Consistency Checker
+以獨立審稿步驟檢查：邏輯矛盾、角色行為不一致、年齡/外貌/服裝錯誤、世界觀衝突、節奏過慢、伏筆未回收、重複內容。輸出 review_report.json 與可選修正版。
+5.6 Script Generator
+把故事轉成可製作劇本。輸出 narration、dialogue、action、scene purpose、estimated duration；可另外生成 Long-form 與 Shorts 版本。
+5.7 Storyboard Generator
+把劇本切成 Scene/Shot。每筆至少包含 sceneId、duration、characters、locationId、narration、dialogue、shotType、cameraMovement、visualDescription、bgmMood、sfx。
+5.8 Prompt Generator
+把同一份分鏡轉換成特定 Provider 所需的 Image Prompt / Video Prompt / Negative Prompt。此模組必須與 Storyboard 分開，避免更換模型時污染核心資料。
+5.9 Reference Asset / Scene Visual Generator
+角色與場景視覺分成兩層：Phase 2 先建立核准的 Character Reference Pack、Location Bible、Style Reference、costumeId 與 propId；Phase 3 才依 Shot Planner 產生 Scene Visual / First Frame / Last Frame。每個生成資產都需保存 prompt、provider、model、referenceIds、seed/settings、檔名與成本，並可追溯至 sourceSceneId / shotId。
+5.10 Video Generator
+Phase 3 以 Shot 為最小動畫單位，支援 Reference/Image-to-Video、Text-to-Video、First/Last Frame、Scene Extension 與 performance-driven animation。Shot N 可將尾幀或狀態傳給 Shot N+1 以提高連貫性；失敗時只 Retry 單一 Shot。Phase 4 再由 VideoProvider / Model Router 抽象不同模型。
+5.11 Performance Voice / Dialogue / Subtitle
+角色使用固定 voiceProfile / Voice ID，由 Performance Director 提供 subtext、emotion、intensity、pace、pause、volume 等表演資料後再送入 TTS / Dialogue Model；重要場景可生成多個 Take。旁白與角色對話分軌，字幕以 Audio Alignment 取得 word/segment timestamp。輸出 AudioAsset、SRT/VTT 與 timing.json。
+5.12 BGM / SFX
+由 Shot Planner + Performance Director 產生 bgmMood、sfxCue 與 ambienceCue，例如 footsteps、door_slam、rain_window、cloth_movement、cinematic_riser。SFX / Ambience 與 Dialogue、BGM 分軌處理；素材需保留授權來源或生成記錄，並在 Timeline Composer 中進行音量 ducking 與混音。
+5.13 Video Composer
+Timeline Composer / Compositing 將 video clips、voice、subtitle、BGM、SFX、ambience、transition 與 CG/VFX Effect Layer 合成。基礎渲染可用 FFmpeg；需要更精細的電影感調色、合成或特效時可交由 DaVinci Resolve / Fusion、After Effects 或 CapCut 人工微調，最後輸出 final.mp4。
+5.14 Shorts / Metadata / Thumbnail
+由長故事自動識別 Hook、高潮、反轉與懸念，產生 9:16 版本；同時生成 YouTube title、description、chapter、Shorts/TikTok caption 與 Thumbnail concepts。
+5.15 UI
+Phase 1 建議使用 Streamlit；介面至少包含 Project List、New Project、Outline、World、Characters、Story、Script、Storyboard、Assets、Final、Analytics。每個生成頁面提供 Generate、Regenerate、Edit、Approve。
+6. Provider Adapter 設計
+Provider 採兩階段設計：Phase 0 先定義最小共用 Interface，避免上層直接綁定單一服務；Phase 4 再擴充成完整 Provider Platform，加入 LLM / Image / Video / Performance / TTS-Dialogue / SFX Provider、Model Router、Benchmark、Fallback 與成本／品質評分。Lip-sync 不設獨立核心 Provider，只在特定條件下作為 Performance / Video 之後的可選後處理。
+範例介面概念：VideoProvider.generate(shot, references, config) → GeneratedAsset；TTSProvider.generate(performance, voiceProfile, config) → AudioAsset；SFXProvider.generate(cue, context) → AudioAsset。統一輸出 Schema 後，Phase 4 可在不修改 Storyboard / Performance JSON / UI 的情況下替換模型或自動路由。
+7. 核心資料結構
+7.1 manifest.json
+建議欄位：projectId、title、language、targetDurationSec、status、createdAt、updatedAt、currentStep、approvedSteps、providerConfig、estimatedCost、actualCost。
+7.2 Scene
+建議欄位：sceneId、order、durationSec、locationId、characterIds、narration、dialogue、action、shotType、cameraMovement、visualDescription、imagePrompt、videoPrompt、bgmMood、sfx、assetRefs、status。
+7.3 GeneratedAsset
+建議欄位：assetId、type、provider、model、sourceSceneId、promptHash、filePath、duration、cost、createdAt、generationParams。此結構可支援 Cache、Retry、成本追蹤與重現。
+8. 建議資料夾結構
+AI_Story_Channel/
+00_brand/
+01_world/
+02_characters/
+03_stories/{projectId}/
+  manifest.json
+  outline.md
+  world.json
+  characters/
+  story.json
+  story.md
+  script.md
+  scenes.json
+  prompts/
+  images/
+  videos/
+  audio/
+  subtitles/
+  thumbnail/
+  output/
+04_shorts/
+05_templates/
+06_analytics/
+角色與世界觀資料要與單一故事分離，才能在不同集數重用；每個生成素材都要能追溯到 Scene、Prompt、Provider 與 Model。
+9. Phase 1 本地端 MVP 技術選型
+語言：Python。UI：Streamlit。資料驗證：Pydantic。LLM：OpenAI API（Structured Output 優先）。檔案：JSON + Markdown + 本地資料夾。影音尚不處理。
+執行模式：python pipeline.py input/story_outline.md，或在 Streamlit UI 建立專案。系統自動建立資料夾並依序呼叫 World → Character → Story → Review → Script → Storyboard → Prompt，必要時停在 Approval Gate。
+Phase 1 不需要 Firebase 或資料庫；先以 manifest.json 作狀態來源。等多人協作、雲端執行或跨裝置需求出現，再考慮 Firestore / Cloud Storage。
+10. Review / Approval Gate
+建議至少保留三個人工 Gate：① Story Approve：確認故事值得製作；② Storyboard Approve：確認畫面數量、節奏與生成成本；③ Final Approve：確認成片後再發布。
+成本較高的 Image/Video/TTS 生成必須依賴 approved=true，避免錯誤內容一路往下造成 API 浪費。
+11. Cost / Usage Tracker
+每次 API 呼叫記錄 provider、model、tokens、image count、video seconds、audio characters/seconds、retry count、cost。每個 Project 匯總 estimatedCost 與 actualCost。
+後續商業指標可計算：Revenue / Video Cost、Cost / Published Minute、Cost / 1,000 Views，以及不同故事類型的投入產出比。
+12. 錯誤處理與可恢復性
+每個模組需具備 deterministic input hash 或版本 ID；若輸入未改變且已有成功 Asset，可直接使用 Cache。失敗只標記單一步驟或 Scene，不應讓整個專案失效。
+Retry 應支援單 Scene、單 Asset、單 Provider；每次生成保留 log 與錯誤訊息。Resume 時從 manifest.currentStep 與各資產狀態判斷下一步。
+13. 測試策略
+Unit Test：資料模型、File Manager、Prompt Builder、Cost 計算。Integration Test：LLM Structured Output、Provider Adapter。Golden Test：固定大綱應產生符合 Schema 的 story/scenes。E2E Test：從 outline 到完整 Story Project。
+14. Phase 驗收標準
+Phase 0 驗收
+建立專案後能產生標準資料夾與 manifest；Provider Interface 與資料模型通過測試。
+Phase 1 驗收
+單次輸入大綱即可產出 world、characters、story、script、scenes、prompts；可以 Review、Regenerate 單一模組並 Resume；所有 JSON 可通過 Schema 驗證。
+Phase 2 驗收
+可建立並核准 Character Reference Pack、Location Bible、Style Reference、Prop / Costume Registry 與 voiceProfile；角色外觀、服裝、場景與聲線設定皆可用穩定 ID 跨 Scene 重用，並能直接供 Phase 3 引用。
+Phase 3 驗收
+每個 Scene 皆為動畫 Clip；至少能以角色 Reference + 場景 Reference 生成連續鏡頭；同角色外觀、服裝、聲音與主要表演特徵跨 Scene 維持一致；同一背景的空間結構與光線風格不明顯漂移；Scene 間的姿勢、動作與音訊轉場自然；任一失敗 Shot 可局部 Retry。
+Phase 4 驗收
+至少支援兩個 Video Model / Provider，並完成 LLM / Image / Video / Performance / TTS-Dialogue / SFX 的統一 Interface；可在 UI 手動切換或由 Model Router 自動選擇；更換模型不需修改 Story / Storyboard / Performance Schema；固定 Benchmark Scenes 有可比較的品質、成本與 Retry Rate 紀錄。TTS 初期可先使用 ElevenLabs 內部模型切換，不強制第二家語音 Provider。
+Phase 5 驗收
+可從既有系列直接建立下一集；生成前自動產生 Continuity Brief；故事完成後通過 Canon、Timeline、Character State、Relationship 與 unresolved threads 檢查；每集結束自動更新系列記憶。
+Phase 6 驗收
+可由長片生成至少 3 支短影音候選，保存 Thumbnail/Metadata，建立基本 Analytics 與成本對照；數據可回饋下一批故事選題與 Model Router。
+
+15. 建議第一批開發 Ticket
+1. 建立 Python 專案、Config、Logging 與 Pydantic Models。
+2. 建立 Project Manager、manifest.json 與標準資料夾。
+3. 實作 LLMProvider 與 Structured Output。
+4. 實作 World Builder、Character Generator。
+5. 實作 Story Generator 與 Story Reviewer。
+6. 實作 Script Generator、Storyboard Generator。
+7. 實作 Prompt Generator 與 Provider-specific Prompt Adapter。
+8. 建立 Streamlit UI 與 Story/Storyboard Approval Gate。
+9. 建立 Resume / Retry / Regenerate。
+10. 加入 Usage/Cost Log，完成 Phase 1 E2E Test。
+16. 後續決策點
+目前優先順序已由「選第一個 Provider」調整為「建立可比較、可替換的 Provider Layer」。Phase 3 先解決動畫化與一致性；Phase 4 再導入多模型 Benchmark 與 Model Router；Phase 5 建立系列 Canon Memory；Phase 6 才擴充發布與數據回饋。
+模型選擇不只看單張畫質，應同時評估角色/背景一致性、動作自然度、對白表演、Reference 能力、API 可用性、批次成本、速度、Retry Rate、商用條款與模型更新頻率。
+最終目標不是完全自動，而是把人工集中在高價值決策：故事創意、角色與品牌風格、關鍵表演、Continuity 審核與數據判斷；其餘重複性工作交給 Pipeline。
+17. 目前品質問題與改善方案
+17.1 女角卻生成男聲 / 聲線錯配
+不要讓 TTS 依角色名字或台詞自行猜 speaker。characters/*.json 必須保存 voiceProfile：voiceId、genderPresentation、ageRange、pitchRange、accent、speakingStyle、baselineEmotion；Dialogue Render 時只允許以 characterId 查表取得 Voice ID。若缺少 Voice ID，流程應 fail-fast，不可自動選預設聲音。
+新增 Voice QA：生成 3～5 秒 Preview 後先做人工 Approve；已核准的 voiceId 鎖定到角色。若使用 Voice Clone，訓練素材應與角色預期情緒、年齡感與說話方式接近；單調訓練樣本會讓之後的情緒控制變差。
+17.2 台詞僵硬、像 AI 念稿
+把 Script Writer 與 Performance Director 分開。Script Writer 只負責『角色會說什麼』；Performance Director 再加入 subtext、emotion、intensity、pace、pause、interruption、hesitation、gesture、facialExpression 等表演標記。TTS 不應只收到純文字。
+對話要以『角色目的』而不是『資訊完整』為優先：允許停頓、打斷、口頭禪、省略、反問、未說完的句子與潛台詞。生成後加 Dialogue Reviewer，專門找出 exposition dump、每個角色說話方式相同、句子過度完整、情緒與劇情不符等問題。
+如果使用 ElevenLabs v4 / Text to Dialogue，可把 voice_id 固定到每個角色，並使用 [whispering]、[sad]、[laughing]、[hesitant] 等 Audio Tags 與上下文控制表演。重要情緒場景建議一次生成多個 Take，由 Quality Selector 或人工挑選最佳版本。
+17.3 角色外觀跨鏡頭漂移
+角色建立時先產生 Character Reference Pack：正面、3/4 側面、側面、全身、常用服裝與主要表情。每個 Shot 必須引用 characterId + reference assets；禁止只把『黑髮女生』這類文字描述當作身份來源。
+高一致性鏡頭優先採 Image-to-Video / reference-to-video；Text-to-Video 適合沒有固定角色的 establishing shot 或抽象畫面。若角色換裝，建立明確 costumeId，而不是讓模型自行變化服裝。
+17.4 背景、道具與空間位置不一致
+每個重要 Location 建立 Location Bible：俯視配置、入口方向、窗戶、桌椅、固定道具、光源、時間與 palette。鏡頭生成時引用 locationId 與 reference images；故事中的重要道具建立 propId 與 owner/state，避免上一幕拿著紅傘、下一幕突然消失。
+17.5 角色個性與故事設定前後矛盾
+Character Bible 中區分 immutableTraits（核心人格/背景）與 mutableState（情緒、關係、傷勢、持有物）；Series Canon 則保存 immutableFacts、timeline、relationships、unresolvedThreads。每次 Story/Script 生成後都先跑 Consistency Checker，再進 Storyboard。
+17.6 建議優先修正順序
+第一優先：Voice ID mapping + Dialogue Performance metadata；第二優先：Character/Location Reference Pack；第三優先：Shot-to-Shot chaining；第四優先：Provider Benchmark/Router；第五優先：Series Canon Memory。這個順序能最快改善觀眾最容易察覺的『聲音不對、角色變臉、畫面跳掉、台詞很假』。
+18. 動畫與語音工具參考資料（2026-10）
+
+Google Veo 3.1：角色/場景 Reference、Scene Extension、First / Last Frame 等能力。注意：Gemini API 的 Veo 3.1 Preview 已於 2026-10-22 關閉；新整合請優先評估 Gemini Omni Flash 或 Google Cloud GA Veo。https://ai.google.dev/gemini-api/docs/video
+Runway Gen-4 References：一致角色與一致場景 Reference。https://help.runwayml.com/hc/en-us/articles/40042718905875-Creating-with-Gen-4-Image-References
+Runway Gen-4.5：Text-to-Video / Image-to-Video。https://help.runwayml.com/hc/en-us/articles/46974685288467-Creating-with-Gen-4-5
+Runway Act-Two：以 performance video 驅動角色動作、說話與表情。https://help.runwayml.com/hc/en-us/articles/42311337895827-Performance-Capture-with-Act-Two
+ElevenLabs Text to Dialogue / Eleven v4：多角色 dialogue、固定 voice_id、Audio Tags 與情緒表演。https://elevenlabs.io/docs/overview/capabilities/text-to-dialogue
+工具名稱、模型版本、API 與價格變動快速；Phase 4 應把以上工具視為 Provider 候選，而不是寫死在核心 Pipeline。
+API Reference
+本節集中整理本專案目前使用或評估中的 AI Provider / Model 註冊入口、API Credential 設定與官方文件。所有 API Key / Client Secret 應只放在後端環境變數或 Secret Manager，不得寫入 Flutter / Web 前端、Git Repository 或 Story Project 輸出檔。
+OpenAI－Story / Script / Dialogue / Performance Metadata
+用途：Story Planner、Script / Dialogue、Performance metadata、Structured Output 與 Consistency 分析。
+Register / Console：https://platform.openai.com/
+API Keys：https://platform.openai.com/api-keys
+Models / Docs：https://platform.openai.com/docs/models
+API Reference：https://platform.openai.com/docs/api-reference
+環境變數建議：OPENAI_API_KEY
+注意：ChatGPT 產品中的模型名稱不一定與 API model ID 一對一對應；實作時應以 OpenAI API Models 頁面目前可使用的 model ID 為準，不要在核心 Pipeline 寫死 ChatGPT UI 的模型名稱。
+Google Gemini Video－Gemini Omni Flash / Veo
+用途：主要電影感 Video Generation、Reference / Keyframe、Scene Extension 與具有原生 Audio 的影片生成。
+Gemini API Key / Google AI Studio：https://aistudio.google.com/apikey
+Video Generation Docs：https://ai.google.dev/gemini-api/docs/video
+Vertex AI Quickstart：https://cloud.google.com/vertex-ai/generative-ai/docs/start/quickstart
+GA Veo 3.1 Google Cloud Docs：https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate
+重要狀態（2026-10-23）：Gemini API 的 Veo 3.1 Preview 已於 2026-10-22 關閉。新整合優先使用 Gemini Omni Flash（目前文件建議的預設影片模型），或依 Google Cloud 可用區域使用 GA Veo 3.1。若使用 Gemini API Key，建議環境變數：GEMINI_API_KEY；若使用 Vertex AI / Google Cloud Production，優先使用 Application Default Credentials 或 服務 Account。
+Runway Dev－Gen-4.5 / Act-Two / Gen-4 Image
+用途：Gen-4.5 電影感 Text/Image-to-Video、Act-Two Performance-driven Character Animation，以及 Reference Image / Character 工作流。
+Developer Portal：https://dev.runwayml.com/
+API Setup：https://docs.dev.runwayml.com/guides/setup/
+Available Models：https://docs.dev.runwayml.com/guides/models/
+API Reference：https://docs.dev.runwayml.com/api/
+環境變數建議：RUNWAYML_API_SECRET
+Runway Dev 目前亦提供多家第三方模型的統一 API，包括 Kling 3.0 Pro、MiniMax H3、Veo 3.1 / Gemini Omni Flash、ElevenLabs Audio 等。Phase 4 可評估把 Runway Dev 當成 Aggregator Provider，以減少 Credential 數量；若成本、功能或供應商鎖定不合適，再切換原生 Provider。
+ElevenLabs－Eleven v4 / Text to Dialogue / Sound Effects
+用途：角色固定 Voice ID、自然情緒 Dialogue、Audio Tags、多 Take 配音、Voice Clone / Voice Design，以及 SFX。
+Register / API：https://elevenlabs.io/api
+Quickstart：https://elevenlabs.io/docs/eleven-api/quickstart
+API Key Guide：https://elevenlabs.io/docs/help-center/technical/how-do-i-authorize-myself-using-an-api-key
+API Reference：https://elevenlabs.io/docs/api-reference
+環境變數建議：ELEVENLABS_API_KEY
+建立帳號後進入 Developers → API Keys 建立 Key。建議限制 Key 可使用的功能與 Credit Limit；Character Bible 僅保存 voiceId，不保存 API Key。
+Kling AI－Kling 3.0 Pro / O3 Pro
+用途：Video Provider；Kling 3.0 Pro 適合一般電影感／高動作量／multi-shot，O3 Pro 類工作流適合 reference-heavy、Video-to-Video 與角色／場景一致性要求較高的鏡頭。
+Developer Portal：https://klingai.com/cn/dev
+Global API Docs：https://app.klingai.com/global/dev/document-api/quickStart/productIntroduction/overview
+Video API Product：https://klingai.com/cn/dev/model/video
+Kling 的 API Console / Endpoint 可能依帳號地區與新舊 API 系統不同，因此應以登入後 Developer Portal 顯示的 API Key 與 Endpoint 為準。若不希望維護另一組 Credential，也可透過 Runway Dev 使用 Kling 3.0 Pro（model id：kling3.0_pro）。
+MiniMax－H3 / H3 Max
+用途：多模態 Video Provider 備援，可使用 Text / Image / Video / Audio Reference；適合 Phase 4 Benchmark。
+API Platform / Register：https://platform.minimax.io/
+API Pricing / Key：https://platform.minimax.io/subscribe/token-plan?tab=api-enterprise
+Developer Docs：https://platform.minimax.io/docs/
+環境變數建議：MINIMAX_API_KEY
+Production 建議使用標準 Pay-as-you-go API Key，而不是只依賴個人 Token Plan。若透過 Runway Dev 使用，MiniMax H3 的 Runway model id 為 hailuo3，H3 Max 為 h3_max。
+Adobe Firefly 服務s－VFX / Audio / Media 服務s
+用途：Adobe Firefly / Audio-Video 服務s、後續可能的媒體處理與 VFX 工作流。
+Adobe Developer Console：https://developer.adobe.com/console/home
+Firefly 服務s Getting Started：https://developer.adobe.com/firefly-services/docs/guides/get-started
+Firefly 服務s Docs：https://developer.adobe.com/firefly-services/
+Credential 方式：在 Adobe Developer Console 建立 Project → 加入 Firefly 服務s API → 建立 OAuth Server-to-Server Credential → 取得 Client ID / Client Secret → 換取 Access Token。建議後端保存 FIREFLY_SERVICES_CLIENT_ID / FIREFLY_SERVICES_CLIENT_SECRET，Access Token 到期前自動更新。
+目前 Adobe 公開 Developer 文件沒有明確提供獨立的 Generate Sound Effects API Endpoint，因此若 Phase 3 需要完全 API 化的 SFX，優先使用 ElevenLabs Sound Effects 或 Runway Generate Sound Effects；Adobe Firefly SFX 可先保留為人工 / Web 製作選項，直到官方提供適合的 Public API。
+Non-model Production 工具s
+FFmpeg：不需要帳號或 API Key，負責自動 Timeline / Transcode / Overlay / Audio Mix。https://ffmpeg.org/
+DaVinci Resolve / Fusion：適合人工電影感調色、Compositing、VFX；主要為本地軟體與 Scripting Workflow，不屬於本專案的雲端 Model Credential。https://www.blackmagicdesign.com/products/davinciresolve
+CapCut：可作為人工最後微調工具；不應視為核心 Provider Dependency。https://www.capcut.com/
+Credential Management 建議
+本專案建議統一使用 Provider Secret Name：OPENAI_API_KEY、GEMINI_API_KEY（或 Google ADC）、RUNWAYML_API_SECRET、ELEVENLABS_API_KEY、KLING_API_KEY、MINIMAX_API_KEY、FIREFLY_SERVICES_CLIENT_ID、FIREFLY_SERVICES_CLIENT_SECRET。Local Development 可用 .env（加入 .gitignore）；正式環境建議使用 GCP Secret Manager。UI / Flutter 只呼叫自己的 Backend API，不直接取得第三方 Provider Secret。
+
+
+

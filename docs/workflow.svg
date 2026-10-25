@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="632" viewBox="0 0 1280 632" role="img">
+<title>Story &amp; Settings | Creative workflow</title><desc>Story &amp; Settings owns creative content. Characters unlock early references; other work needs approved planning.</desc>
+<rect width="100%" height="100%" fill="white"/>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker></defs>
+<text x="640" y="46" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="600" fill="#0f172a">Story &amp; Settings | Creative workflow</text>
+<text x="640" y="75" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400" fill="#475569">Blue: work  |  Orange: human approval  |  Green: workspace handoff</text>
+<path d="M420 164L450 164" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M830 164L860 164" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M1050 228L1050 266" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M860 330L830 330" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M450 330L420 330" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M230 394L230 432" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M420 496L450 496" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M830 496L860 496" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<a href="../README.md#story-settings"><rect x="40" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="230" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">1. Project + outline</text>
+<text x="230" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Title, language, target length</text>
+</a>
+<a href="../README.md#story-settings"><rect x="450" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="640" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">2. World + Characters</text>
+<text x="640" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Establish canon and cast</text>
+</a>
+<a href="../README.md#story-settings"><rect x="860" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="1050" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">3. Story</text>
+<text x="1050" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Generate original story content</text>
+</a>
+<a href="../README.md#story-settings"><rect x="860" y="266" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
+<text x="1050" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">4. AI Review (Story)</text>
+<text x="1050" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Edit, apply/revert, save and approve</text>
+</a>
+<a href="../README.md#story-settings"><rect x="450" y="266" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="640" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">5. Script + Dialogue</text>
+<text x="640" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Review dialogue and draft intent</text>
+</a>
+<a href="../README.md#story-settings"><rect x="40" y="266" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="230" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">6. Storyboard</text>
+<text x="230" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Plan scenes, shots and camera</text>
+</a>
+<a href="../README.md#story-settings"><rect x="40" y="432" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
+<text x="230" y="467" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">7. AI Review (Storyboard)</text>
+<text x="230" y="498" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Edit, apply/revert or keep original</text>
+</a>
+<a href="../README.md#story-settings"><rect x="450" y="432" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="640" y="467" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">8. Prompts</text>
+<text x="640" y="498" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Generate visual instructions</text>
+</a>
+<a href="../README.md#assets"><rect x="860" y="432" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
+<text x="1050" y="467" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">9. Go to Assets</text>
+<text x="1050" y="498" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Character references can start early</text>
+</a>
+<text x="640" y="619" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#475569">Story &amp; Settings owns creative content. Characters unlock early references; other work needs approved planning.</text>
+</svg>

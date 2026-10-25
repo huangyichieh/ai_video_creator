@@ -1,0 +1,44 @@
+# Python environments, caches and build output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Local API keys, credentials and settings (keep the blank template)
+.env*
+!.env.example
+.streamlit/secrets.toml
+secrets.toml
+secrets.json
+secrets.yaml
+secrets.yml
+credentials*.json
+api_keys*.json
+*.pem
+*.key
+*.p12
+*.pfx
+/config.json
+/config.local.*
+*.local.json
+
+# Story Studio projects: manifests, billing, prompts, history and generated media
+AI_Story_Channel/
+/data/
+/projects/
+/project_data/
+/story_data/
+/uploads/
+/output/
+/outputs/
+/logs/
+
+# Personal outlines; retain only the bundled sample used by the README
+/input/*
+!/input/story_outline.md

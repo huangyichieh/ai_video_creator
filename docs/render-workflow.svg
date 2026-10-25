@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="466" viewBox="0 0 1280 466" role="img">
+<title>Final | Assembly and final review</title><desc>Final assembles approved scenes. Changed composition settings send affected scenes back to Animations.</desc>
+<rect width="100%" height="100%" fill="white"/>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker></defs>
+<text x="640" y="46" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="600" fill="#0f172a">Final | Assembly and final review</text>
+<text x="640" y="75" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400" fill="#475569">Blue: work  |  Orange: human approval  |  Green: workspace handoff</text>
+<path d="M420 164L450 164" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M830 164L860 164" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M1050 228L1050 266" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M860 330L830 330" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M450 330L420 330" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<a href="../README.md#animations"><rect x="40" y="100" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
+<text x="230" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">1. From Animations</text>
+<text x="230" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Every current scene approved</text>
+</a>
+<a href="../README.md#final"><rect x="450" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="640" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">2. Timeline + subtitles</text>
+<text x="640" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Review order, timing and captions</text>
+</a>
+<a href="../README.md#final"><rect x="860" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="1050" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">3. Mix + output settings</text>
+<text x="1050" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Changes? Recompose on Animations</text>
+</a>
+<a href="../README.md#final"><rect x="860" y="266" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="1050" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">4. Assemble final video</text>
+<text x="1050" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Use approved media; no model calls</text>
+</a>
+<a href="../README.md#final"><rect x="450" y="266" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="640" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">5. Preview + download</text>
+<text x="640" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">MP4, SRT/VTT, timeline exports</text>
+</a>
+<a href="../README.md#final"><rect x="40" y="266" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
+<text x="230" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">6. Approve final video</text>
+<text x="230" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Local approval; does not publish</text>
+</a>
+<text x="640" y="453" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#475569">Final assembles approved scenes. Changed composition settings send affected scenes back to Animations.</text>
+</svg>

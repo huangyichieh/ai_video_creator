@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="370" viewBox="0 0 1280 370" role="img">
+<title>Story Studio workspace map</title><desc>Story and Settings to Assets to Animations to Final. Every page reports to Analytics.</desc>
+<rect width="100%" height="100%" fill="white"/>
+<text x="640" y="48" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="600">Story Studio | Workspace map</text>
+<a href="../README.md#story-settings"><rect x="28" y="100" width="279" height="107" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="167" y="141" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600">Story &amp; Settings</text>
+<text x="167" y="181" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400">Plan and approve the story</text>
+</a>
+<path d="M308 152h28l-9 -5m9 5l-9 5" fill="none" stroke="#64748b" stroke-width="3"/>
+<path d="M167 208v58l-5 -9m5 9l5 -9" fill="none" stroke="#34a887" stroke-width="2"/>
+<a href="../README.md#assets"><rect x="343" y="100" width="279" height="107" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="482" y="141" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600">Assets</text>
+<text x="482" y="181" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400">Reusable identity and voices</text>
+</a>
+<path d="M623 152h28l-9 -5m9 5l-9 5" fill="none" stroke="#64748b" stroke-width="3"/>
+<path d="M482 208v58l-5 -9m5 9l5 -9" fill="none" stroke="#34a887" stroke-width="2"/>
+<a href="../README.md#animations"><rect x="658" y="100" width="279" height="107" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="797" y="141" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600">Animations</text>
+<text x="797" y="181" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400">Generate / approve scenes</text>
+</a>
+<path d="M938 152h28l-9 -5m9 5l-9 5" fill="none" stroke="#64748b" stroke-width="3"/>
+<path d="M797 208v58l-5 -9m5 9l5 -9" fill="none" stroke="#34a887" stroke-width="2"/>
+<a href="../README.md#final"><rect x="973" y="100" width="279" height="107" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="1112" y="141" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600">Final</text>
+<text x="1112" y="181" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400">Assemble / approve video</text>
+</a>
+<path d="M1112 208v58l-5 -9m5 9l5 -9" fill="none" stroke="#34a887" stroke-width="2"/>
+<a href="../README.md#analytics"><rect x="28" y="267" width="1224" height="75" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
+<text x="640" y="299" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="24" font-weight="600">Analytics</text>
+<text x="640" y="328" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400">Generation usage, request attribution and separate billing reports across every workspace</text>
+</a>
+</svg>
