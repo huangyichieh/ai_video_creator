@@ -101,7 +101,8 @@ def test_openai_spending_reads_every_cost_page_without_limit_endpoint(monkeypatc
     assert quota.used == Decimal("15.75")
     assert quota.remaining is None
     assert quota.unit == "USD"
-    assert len(requests) == 2
+    assert len(requests) == 4
+    assert quota.last_month_used == Decimal("15.75")
 
 
 def test_openai_spending_never_publishes_partial_costs(monkeypatch):
@@ -111,6 +112,39 @@ def test_openai_spending_never_publishes_partial_costs(monkeypatch):
     monkeypatch.setattr(httpx.Client, "get", get)
     with pytest.raises(ValueError, match="unreadable"):
         provider_quota.fetch_quota("OPENAI_ADMIN_KEY", "fake-admin")
+
+
+@pytest.mark.parametrize("today,previous",[("2026-01-15","2025-12-01"),("2024-03-15","2024-02-01")])
+def test_previous_month_spending_uses_exact_utc_calendar_boundaries(monkeypatch,today,previous):
+    fixed = datetime.fromisoformat(today).replace(tzinfo=timezone.utc)
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):
+            return fixed
+    monkeypatch.setattr(provider_quota,"datetime",Clock)
+    calls = []
+    def get(self,url,*,headers,params):
+        calls.append(dict(params))
+        value = "3.14" if len(calls) == 1 else "2.72"
+        return httpx.Response(200,json={"data":[{"results":[{"amount":{"value":value,"currency":"USD"}}]}],"has_more":False})
+    monkeypatch.setattr(httpx.Client,"get",get)
+    quota = provider_quota.fetch_quota("OPENAI_ADMIN_KEY","fake-admin")
+    assert calls[1]["start_time"] == int(datetime.fromisoformat(previous).replace(tzinfo=timezone.utc).timestamp())
+    assert calls[1]["end_time"] == calls[0]["start_time"]
+    assert calls[0]["end_time"] == int(fixed.timestamp())
+    assert quota.used == Decimal("3.14") and quota.last_month_used == Decimal("2.72")
+
+
+def test_previous_month_failure_preserves_current_spending_without_partial_total(monkeypatch):
+    calls = []
+    def get(self,url,**kwargs):
+        calls.append(url)
+        if len(calls) > 1:
+            return httpx.Response(403,json={})
+        return httpx.Response(200,json={"data":[{"results":[{"amount":{"value":"4.50","currency":"USD"}}]}],"has_more":False})
+    monkeypatch.setattr(httpx.Client,"get",get)
+    quota = provider_quota.fetch_quota("OPENAI_ADMIN_KEY","fake-admin")
+    assert quota.used == Decimal("4.50") and quota.last_month_used is None
 
 
 def test_open_dialog_checks_every_saved_provider_and_isolates_errors(tmp_path, monkeypatch):
@@ -124,7 +158,8 @@ def test_open_dialog_checks_every_saved_provider_and_isolates_errors(tmp_path, m
         if key == "RUNWAYML_API_SECRET":
             raise ValueError("Quota unavailable: access denied")
         if key == "OPENAI_ADMIN_KEY":
-            return provider_quota.Quota(None, "USD", now, used=Decimal("19.88"))
+            return provider_quota.Quota(None, "USD", now, used=Decimal("19.88"),
+                last_month_used=Decimal("13.579"),last_month_label="October 2026")
         return provider_quota.Quota(Decimal(750), "characters", now, Decimal(250), Decimal(1000))
     monkeypatch.setattr(provider_quota, "fetch_quota", fetch)
     app = AppTest.from_string("from story_channel.api_keys_ui import api_key_button\napi_key_button()").run()
@@ -133,6 +168,7 @@ def test_open_dialog_checks_every_saved_provider_and_isolates_errors(tmp_path, m
     assert {metric.value for metric in app.metric} == {"19.88", "250", "750"}
     assert any("access denied" in item.value for item in app.warning)
     assert next(metric for metric in app.metric if metric.label == "OpenAI reported spending (USD)").value == "19.88"
+    assert any("Last month (October 2026): :red[USD 13.58]" in item.value for item in app.caption)
     assert not any("Fallback monthly budget" in item.label for item in app.text_input)
     app.text_input(key="api-key-draft-OPENAI_API_KEY").set_value("new-fake-key").run()
     assert len(calls) == 3

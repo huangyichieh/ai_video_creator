@@ -1,6 +1,6 @@
 """Read-only account quota queries. Never infer balances from project costs."""
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation
 
 import httpx
@@ -14,6 +14,8 @@ class Quota:
     used: Decimal | None = None
     limit: Decimal | None = None
     resets_at: datetime | None = None
+    last_month_used: Decimal | None = None
+    last_month_label: str | None = None
 
 
 def _number(data, name):
@@ -40,11 +42,10 @@ def _read(client, url, headers, *, params=None):
     return data
 
 
-def _openai_spending(client, headers):
+def _openai_cost_total(client, headers, start, end):
     base = "https://api.openai.com/v1/organization"
-    now = datetime.now(timezone.utc)
-    params = {"start_time": int(now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()),
-              "end_time": int(now.timestamp()), "bucket_width": "1d", "limit": 180}
+    params = {"start_time": int(start.timestamp()),
+              "end_time": int(end.timestamp()), "bucket_width": "1d", "limit": 180}
     total, seen = Decimal(0), set()
     while True:
         data = _read(client, base + "/costs", headers, params=params)
@@ -63,7 +64,20 @@ def _openai_spending(client, headers):
             raise ValueError("Invalid quota")
         seen.add(cursor)
         params["page"] = cursor
-    return Quota(None, "USD", datetime.now(timezone.utc), used=total)
+    return total
+
+
+def _openai_spending(client, headers):
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1,hour=0,minute=0,second=0,microsecond=0)
+    previous_start = (month_start-timedelta(days=1)).replace(day=1)
+    total = _openai_cost_total(client,headers,month_start,now)
+    try:
+        previous_total = _openai_cost_total(client,headers,previous_start,month_start)
+    except (httpx.RequestError,ValueError,KeyError,TypeError,InvalidOperation,OverflowError,OSError):
+        previous_total = None  # Keep current spending; never present partial history as a complete total.
+    return Quota(None,"USD",datetime.now(timezone.utc),used=total,
+        last_month_used=previous_total,last_month_label=previous_start.strftime("%B %Y"))
 
 
 def fetch_quota(key_name, api_key):

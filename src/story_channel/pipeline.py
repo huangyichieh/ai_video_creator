@@ -50,6 +50,7 @@ class Pipeline:
                      (saved.provider == "demo" if saved else self.settings.llm_provider == "demo"))
         self.provider = provider or (DemoLLMProvider() if self.demo else
                                      OpenAILLMProvider(timeout=self.settings.llm_timeout_sec))
+        self._custom_provider = provider is not None
         self.config = llm_config or (saved if saved and (saved.provider == "demo") == self.demo else
                                     ProviderConfig(provider="demo" if self.demo else self.settings.llm_provider,
                                                    model="demo-v1" if self.demo else self.settings.llm_model,
@@ -60,17 +61,54 @@ class Pipeline:
 
     def artifact(self, step: str) -> Model:
         module = MODULES[step]
-        return module.model.model_validate_json((self.path / module.filename).read_text(encoding="utf-8-sig"))
+        from .file_cache import read_model
+        return read_model(self.path / module.filename, module.model)
 
-    def _context(self, step: str) -> dict:
+    def _context(self, step: str, *, fresh_assets=False) -> dict:
         manifest = self._load()
         context = {"title": manifest.title, "language": manifest.language,
                    "targetDurationSec": manifest.target_duration_sec,
                    "outline": self.manager.read_outline(self.project_id)}
+        if manifest.workflow_version == "world_episode":
+            from .studio import WorldStudio
+            world_id = manifest.world_project_id or self.project_id
+            canon = manifest.canon_snapshot or WorldStudio(self.manager, world_id).canon()
+            if step in ("world", "characters"):
+                canon = {**canon, "additionalSettings": []}
+            context["approvedCanon"] = canon
+            if step in ("world", "characters"):
+                parent = self.manager.load(world_id)
+                context.update(title=parent.title, targetDurationSec=parent.target_duration_sec,
+                               outline=canon["worldSettings"])
         if not context["outline"].strip():
             raise ValueError("Story outline must not be empty")
         for dependency in MODULES[step].dependencies:
             context[dependency] = self.artifact(dependency).model_dump(mode="json", by_alias=True)
+        if step not in ("world", "characters") and "world" in context and (self.path / "background_library.json").exists():
+            from .background_library import locations
+            context["world"]["locations"] = [loc.model_dump(mode="json", by_alias=True) for loc in locations(self)]
+        if step == "storyboard":
+            from .storyboard_assets import asset_catalog
+            owner = manifest.world_project_id or self.project_id
+            context["assetCatalog"] = asset_catalog(self.manager,owner,include_reusable=True) if fresh_assets else asset_catalog(self.manager,self.project_id)
+            snapshot = self.path/"storyboard_reference_context.json"
+            references = None
+            if fresh_assets:
+                from .storyboard_details import reference_context
+                references = reference_context(self.manager,self.project_id)
+            elif snapshot.exists():
+                from .file_cache import read_json
+                references = read_json(snapshot)
+            if references is not None:
+                context.update(references)
+                known = {loc["locationId"]:loc for loc in context["world"]["locations"]}
+                known.update({loc["locationId"]:loc for loc in references.get("sharedBackgrounds",[])})
+                context["world"]["locations"] = list(known.values())
+        if step == "prompts" and "storyboard" in context:
+            known = {item["locationId"]:item for item in context["world"]["locations"]}
+            for item in context["storyboard"].get("backgrounds",[]):
+                known.setdefault(item["locationId"],item)
+            context["world"]["locations"] = list(known.values())
         return context
 
     def _fingerprint(self, step: str, *, context=None) -> str:
@@ -79,12 +117,21 @@ class Pipeline:
                   if step == "prompts" else (override or self.config).model_dump(mode="json"))
         if step == "prompts" and override:
             config["llmOverride"] = override.model_dump(mode="json")
-        return input_hash({"context": self._context(step) if context is None else context, "config": config,
+        context = self._context(step) if context is None else context
+        schema = MODULES[step].model.model_json_schema()
+        if step == "storyboard" and "detailBackgrounds" not in context:
+            # Preserve fingerprints of completed pre-detail storyboards until
+            # explicit generation adopts the expanded planning context/schema.
+            schema.get("properties",{}).pop("detailBackgrounds",None)
+            schema.get("$defs",{}).pop("StoryboardDetailBackground",None)
+        return input_hash({"context": context, "config": config,
                            "version": PROMPT_VERSION + ("-concise-review-v2" if step == "review" else ""),
-                           "schema": MODULES[step].model.model_json_schema()})
+                           "schema": schema})
 
     def _invalidate(self, manifest, start: str, *, include_self: bool):
         affected = REPROCESS[start] | ({start} if include_self else set())
+        for name in affected:
+            manifest.content_approvals.pop(name, None)
         if start != "review":
             if manifest.render_state != "not_started":
                 manifest.render_state = "stale"
@@ -167,6 +214,22 @@ class Pipeline:
             return self._refresh()
 
     def _gate(self, step: str, manifest):
+        if manifest.workflow_version == "world_episode":
+            from .studio import WorldStudio, approved_content
+            world = WorldStudio(self.manager, manifest.world_project_id or self.project_id)
+            if step == "world" and world.load().approval:
+                raise ApprovalRequired("Approved World settings are immutable. Add additional settings on World.")
+            if step != "world":
+                world.require_approved()
+            if not manifest.world_project_id and step not in ("world", "characters"):
+                raise ApprovalRequired("Create or select an episode on Story/Episode before generating story content.")
+            if manifest.world_project_id:
+                if step in ("world", "characters"):
+                    raise ApprovalRequired("Shared World and Characters are managed on World and Assets.")
+                if not approved_content(self, "outline"):
+                    raise ApprovalRequired("Approve this episode's Outline before generating story content.")
+                if step == "storyboard" and not approved_content(self, "script"):
+                    raise ApprovalRequired("Review and approve Script before generating Storyboard.")
         if STEPS.index(step) >= STEPS.index("script") and "story" not in manifest.approvals:
             raise ApprovalRequired("Complete AI Review (Story): apply or revert every difference, then save and approve before continuing.")
         if step == "prompts" and "storyboard" not in manifest.approvals:
@@ -195,16 +258,21 @@ class Pipeline:
                 for key in ("hook", "setup", "conflict", "escalation", "twist", "climax", "ending"))
             atomic_write(self.path / "story.md", markdown + "\n")
         elif isinstance(output, Script):
+            from .markdown_exports import performance_text
+            from .location_labels import location_labels,location_label
+            labels = location_labels(self.path)
             from .animation_models import Performance
             intent = [Performance(scene_id=scene.scene_id, line_index=index, character_id=line.character_id,
-                                  text=line.text, subtext=f"Draft scene purpose: {scene.purpose}", body_action=scene.action)
+                                  text=line.text, audio_tags=line.audio_tags, subtext=f"Draft scene purpose: {scene.purpose}", body_action=scene.action)
                       for scene in output.scenes for index, line in enumerate(scene.dialogue)]
             atomic_write(self.path / "performance_intent.json", json.dumps({"status": "draft",
                 "scriptHash": input_hash(output.model_dump(mode="json", by_alias=True)),
                 "performances": [line.model_dump(mode="json", by_alias=True) for line in intent]}, ensure_ascii=False, indent=2))
             markdown = f"# {output.title}\n\n" + "\n\n".join(
-                f"## {s.scene_id} ({s.estimated_duration_sec:g}s)\n\nPurpose: {s.purpose}\n\nLocation: {s.location_id}\n\n"
-                f"Narration: {readable_text(s.narration)}\n\nAction: {readable_text(s.action)}\n\n" + "\n\n".join(f"{d.character_id}: {readable_text(d.text)}" for d in s.dialogue)
+                f"## {s.scene_id} ({s.estimated_duration_sec:g}s)\n\nPurpose: {s.purpose}\n\nLocation: {location_label(s.location_id,labels)}\n\n"
+                f"Narration: {performance_text(s.narration, s.narration_audio_tags)}\n\nAction: {readable_text(s.action)}\n\n"
+                + "\n\n".join(f"{d.character_id}: {performance_text(d.text, d.audio_tags)}" for d in s.dialogue)
+                + ("\n\n**SFX:** " + "; ".join(s.sfx) if s.sfx else "")
                 for s in output.scenes)
             atomic_write(self.path / "script.md", markdown + "\n")
         elif isinstance(output, Prompts):
@@ -214,12 +282,14 @@ class Pipeline:
                         for p in output.prompts]
                 atomic_write(self.path / "prompts" / f"{kind}_prompts.json", json.dumps(data, ensure_ascii=False, indent=2) + "\n")
         elif isinstance(output, Storyboard):
-            atomic_write(self.path / "storyboard.md", storyboard_markdown(output))
+            from .location_labels import location_labels
+            atomic_write(self.path / "storyboard.md", storyboard_markdown(output,location_labels(self.path)))
 
     def export_storyboard_markdown(self):
         """Refresh the readable export for existing projects without regenerating data."""
         with project_lock(self.path):
-            content = storyboard_markdown(self.artifact("storyboard"))
+            from .location_labels import location_labels
+            content = storyboard_markdown(self.artifact("storyboard"),location_labels(self.path))
             path = self.path / "storyboard.md"
             if not path.exists() or path.read_text(encoding="utf-8") != content:
                 atomic_write(path, content)
@@ -236,6 +306,7 @@ class Pipeline:
         atomic_write(snapshot, output.model_dump_json(by_alias=True, indent=2) + "\n")
         self._write_outputs(step, output)
         self._invalidate(manifest, step, include_self=False)
+        manifest.content_approvals.pop(step, None)
         state.status = "succeeded"
         state.input_hash = fingerprint
         state.retained_input_hash = ""
@@ -267,8 +338,14 @@ class Pipeline:
         if not force and manifest.steps.get(step, StepState()).status == "succeeded":
             self._write_outputs(step, self.artifact(step))
             return
-        context = self._context(step)
-        fingerprint = self._fingerprint(step)
+        # Pin the actual model only when generating a new revision. Editing future
+        # preferences must not invalidate completed or approved artifacts.
+        if not self.demo:
+            from .generation_preferences import openai_config
+            manifest.provider_config[f"llm:{step}"] = openai_config(self, step)
+            self.manager.save(manifest)
+        context = self._context(step,fresh_assets=step == "storyboard")
+        fingerprint = self._fingerprint(step,context=context)
         self._invalidate(manifest, step, include_self=True)
         state = manifest.steps.setdefault(step, StepState())
         state.status = "running"
@@ -285,6 +362,8 @@ class Pipeline:
             else:
                 output = self._generate(step, context)
             validate_output(step, output, context)
+            if step == "storyboard":
+                atomic_write(self.path/"storyboard_reference_context.json",json.dumps({key:context[key] for key in ("sharedBackgrounds","detailBackgrounds","locationTypes","assetCatalog")},ensure_ascii=False,indent=2))
             self._commit(step, output, fingerprint)
         except Exception as exc:
             manifest = self._load()
@@ -301,7 +380,9 @@ class Pipeline:
     def _generate(self, step: str, context: dict):
         override = self._load().provider_config.get(f"llm:{step}")
         config = override or self.config
-        provider = OpenAILLMProvider(timeout=self.settings.llm_timeout_sec) if override else self.provider
+        provider = (self.provider if self._custom_provider else
+                    OpenAILLMProvider(timeout=self.settings.llm_timeout_sec) if override and override.provider != "demo" else
+                    DemoLLMProvider() if override and override.provider == "demo" and not self.demo else self.provider)
         if step == "prompts":
             context = {**context, "promptTarget": {"provider": self.settings.prompt_provider,
                                                    "model": self.settings.prompt_model}}
@@ -311,9 +392,12 @@ class Pipeline:
             self.manager.save(manifest)
             outcome = "failed"
             try:
-                output = tracked_call(self.manager, self.project_id, step, provider.generate, build_prompt(step, context), MODULES[step].model, config)
-                output = MODULES[step].model.model_validate(output.model_dump())
-                validate_output(step, output, context)
+                def validate(output):
+                    output = MODULES[step].model.model_validate(output.model_dump())
+                    validate_output(step, output, context)
+                    return output
+                output = tracked_call(self.manager, self.project_id, step, provider.generate, build_prompt(step, context),
+                                      MODULES[step].model, config, validate_result=validate)
                 outcome = "succeeded"
                 return output
             except TransientProviderError:
@@ -335,6 +419,11 @@ class Pipeline:
         with project_lock(self.path):
             for step in STEPS:
                 manifest = self._refresh()
+                if manifest.workflow_version == "world_episode":
+                    if manifest.world_project_id and step in ("world", "characters"):
+                        continue
+                    if not manifest.world_project_id and step == "world" and "world" in manifest.content_approvals:
+                        continue
                 try:
                     self._gate(step, manifest)
                 except ApprovalRequired:
@@ -347,7 +436,15 @@ class Pipeline:
             raise ValueError(f"Unknown module: {step}")
         with project_lock(self.path):
             self._run_step(step, force=force)
-            return self._refresh()
+            result = self._refresh()
+        self._sync_storyboard_assets(step)
+        return result
+
+    def _sync_storyboard_assets(self,step):
+        manifest = self._load()
+        if step == "storyboard" and manifest.workflow_version == "world_episode" and manifest.world_project_id:
+            from .storyboard_assets import sync
+            sync(self.manager,manifest.world_project_id)
 
     def regenerate_with_openai(self, step: str):
         if step not in MODULES:
@@ -358,17 +455,20 @@ class Pipeline:
             for dependency in MODULES[step].dependencies:
                 if manifest.steps.get(dependency, StepState()).status != "succeeded":
                     raise ValueError(f"Generate {dependency} before {step}")
-            manifest.provider_config[f"llm:{step}"] = ProviderConfig(
-                provider="openai", model=self.settings.llm_model if self.demo else self.config.model,
-                options={"max_output_tokens": self.settings.llm_max_output_tokens})
+            from .generation_preferences import openai_config
+            manifest.provider_config[f"llm:{step}"] = openai_config(self, step, force=True)
             self.manager.save(manifest)
             self._run_step(step, force=True)
-            return self._refresh()
+            result = self._refresh()
+        self._sync_storyboard_assets(step)
+        return result
 
     def modify_with_openai(self, step, instructions, *, expected=None):
         from .modification import modify_content, OutlineEdit
         if step not in MODULES and step != "outline":
             raise ValueError("Unknown content to modify")
+        if step == "outline" and self._load().workflow_version == "world_episode":
+            raise ValueError("Use Modify with prompt on World or the episode Outline; review suggestions before saving.")
         with project_lock(self.path):
             if step == "outline":
                 old = self.manager.read_outline(self.project_id)
@@ -400,6 +500,14 @@ class Pipeline:
     def edit(self, step: str, text: str):
         """Validate before writing; reprocess only explicit dependents and approvals."""
         if step == "outline":
+            manifest = self._load()
+            if manifest.workflow_version == "world_episode":
+                if manifest.world_project_id:
+                    from .studio import Episodes
+                    return Episodes(self.manager, manifest.world_project_id).save_outline(
+                        self.project_id, manifest.title, text, manifest.target_duration_sec)
+                from .studio import WorldStudio
+                return WorldStudio(self.manager, self.project_id).edit_base(text)
             if not text.strip():
                 raise ValueError("Story outline must not be empty")
             with project_lock(self.path):
@@ -439,14 +547,27 @@ class Pipeline:
             raise ValueError("This character changed in another editor. Reload its saved JSON before saving.")
         cast.characters[index] = edited
         self.edit_bundle({"characters": cast.model_dump_json(by_alias=True)}, expected={"characters": source})
+        manifest = self._load()
+        if manifest.workflow_version == "world_episode" and not manifest.world_project_id:
+            from .identity import IdentityManager
+            IdentityManager(self.manager, self.project_id).prepare()
 
-    def edit_bundle(self, changes: dict[str, str], *, expected: dict[str, str]):
+    def edit_bundle(self, changes: dict[str, str], *, expected: dict[str, str], preserve_storyboard_approval=False):
         """Validate a dialog's draft before saving; reject concurrent changes."""
         allowed = {"project", "outline", *STEPS}
         if not set(changes) <= allowed or not set(expected) <= allowed:
             raise ValueError("Unknown content in stage edit")
+        if preserve_storyboard_approval and set(changes) != {"storyboard"}:
+            raise ValueError("Approval retention is only supported for a scoped storyboard edit")
         with project_lock(self.path):
-            manifest = self._load()
+            manifest = self._refresh() if preserve_storyboard_approval else self._load()
+            retained_approval = manifest.approvals.get("storyboard") if preserve_storyboard_approval else None
+            approval_steps = STEPS[:STEPS.index("storyboard") + 1]
+            if retained_approval and (any(name not in manifest.steps or manifest.steps[name].status != "succeeded" for name in approval_steps)
+                    or retained_approval.content_hash != input_hash({name:manifest.steps[name].output_hash for name in approval_steps})):
+                retained_approval = None
+            if manifest.workflow_version == "world_episode" and ("outline" in changes or "project" in changes):
+                raise ValueError("Edit World settings on World, or episode title/outline/length on Story/Episode.")
 
             def read(name):
                 if name == "project":
@@ -472,6 +593,11 @@ class Pipeline:
                 raise ValueError("Story outline must not be empty")
             parsed = {name: MODULES[name].model.model_validate_json(text)
                       for name, text in changes.items() if name in MODULES}
+            if "storyboard" in parsed:
+                from .storyboard_editor import reconcile_detail_requirements
+                board = parsed["storyboard"].model_dump(mode="json",by_alias=True)
+                board["detailBackgrounds"] = reconcile_detail_requirements(board,{})
+                parsed["storyboard"] = MODULES["storyboard"].model.model_validate(board)
             # Check every changed module against the draft inputs, without writing files.
             for name, output in parsed.items():
                 context = {"title": checked.title, "language": checked.language,
@@ -492,7 +618,15 @@ class Pipeline:
                 if name in parsed:
                     self._commit(name, parsed[name], self._fingerprint(name))
             # An edited stage stays stale when unchanged upstream dependencies need regeneration.
-            self._refresh()
+            updated = self._refresh()
+            if retained_approval and all(updated.steps[name].status == "succeeded" for name in approval_steps):
+                digest = input_hash({name:updated.steps[name].output_hash for name in approval_steps})
+                updated.approvals["storyboard"] = retained_approval.model_copy(update={"content_hash":digest,
+                    "note":"Existing storyboard approval retained after scoped prop removal; dialogue and story beats preserved"})
+                updated.approved_steps = [gate for gate in ("story","storyboard") if gate in updated.approvals]
+                self._set_status(updated)
+                self.manager.save(updated)
+                self._event("storyboard","approval_retained",content_hash=digest,previous_content_hash=retained_approval.content_hash)
 
     def approve(self, gate: str, note: str = ""):
         with project_lock(self.path):

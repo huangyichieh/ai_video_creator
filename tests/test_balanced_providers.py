@@ -30,7 +30,8 @@ def test_balanced_defaults():
 
 
 @pytest.mark.parametrize("kind", ["kling", "act_two", "image"])
-def test_runway_requests_upload_without_auth_to_storage_and_resume(tmp_path, monkeypatch, kind):
+@pytest.mark.parametrize("prompt", ["A character opens a heavy door.", "x" * 999])
+def test_runway_requests_upload_without_auth_to_storage_and_resume(tmp_path, monkeypatch, kind, prompt):
     monkeypatch.setenv("RUNWAYML_API_SECRET", "test-runway-secret")
     ref = reference(tmp_path)
     calls, submitted = [], []
@@ -54,14 +55,20 @@ def test_runway_requests_upload_without_auth_to_storage_and_resume(tmp_path, mon
         options={"output_path": str(tmp_path / ("out.png" if kind == "image" else "out.mp4")), "seconds": 8, "size": "1280x720", "performance_video": str(ref)})
     if kind == "kling":
         config.options["last_frame"] = str(ref)
+    if kind == "image":
+        config.options["reference_role"] = "design"
+        config.options["yaw_fill"] = {"sourceImage": "source.png", "draftImage": "draft.png", "prompt": "original"}
     method = provider.generate if kind == "image" else provider.generate_clip
-    asset = method("A character opens a heavy door.", [ref], config)
+    asset = method(prompt, [ref], config)
     assert asset.provider == "runway" and asset.generation_params["jobId"] == "task-123"
     unit = "image_count" if kind == "image" else "video_seconds"
     assert provider.last_usage[unit] == (1 if kind == "image" else 8)
-    method("A character opens a heavy door.", [ref], config)
+    method(prompt, [ref], config)
     assert len(submitted) == 1 and provider.last_usage[unit] == 0
     body = submitted[0]
+    if kind != "act_two":
+        assert body["promptText"] == prompt and len(body["promptText"]) < 1000
+        assert asset.generation_params["submittedPrompt"] == prompt
     if kind == "kling":
         assert body["model"] == "klingO3_pro" and body["audio"] is False
         assert [item["position"] for item in body["promptImage"]] == ["first", "last"]
@@ -69,6 +76,23 @@ def test_runway_requests_upload_without_auth_to_storage_and_resume(tmp_path, mon
         assert body["reference"]["type"] == "video" and body["bodyControl"] is True
     else:
         assert body["referenceImages"] and body["model"] == "gen4_image"
+        assert body["referenceImages"][0]["tag"] == "design"
+        recorded = asset.generation_params["runwayRequest"]
+        assert recorded["body"] == body
+        assert recorded["yawFill"]["sourceImage"] == "source.png"
+        assert recorded["referenceInputs"][0]["fileHash"]
+        assert recorded["referenceInputs"][0]["uri"] == body["referenceImages"][0]["uri"]
+        assert "Authorization" not in json.dumps(recorded) and "test-runway-secret" not in json.dumps(recorded)
+        config.options["yaw_fill"] = {"sourceImage": "not-submitted.png"}
+        resumed = method("This different prompt was not submitted on resume.", [ref], config)
+        assert len(submitted) == 1
+        assert resumed.generation_params["runwayRequest"] == recorded
+        assert resumed.generation_params["submittedPrompt"] == body["promptText"]
+        # A manual retry may use a new output path while resuming the same remote task.
+        config.options.update(job_id="task-123", request_snapshot_path=str(tmp_path / "out.png.request.json"),
+                              output_path=str(tmp_path / "retrieved.png"))
+        retrieved = method("Also never submitted.", [ref], config)
+        assert len(submitted) == 1 and retrieved.generation_params["runwayRequest"] == recorded
 
 
 def test_runway_unknown_submission_is_not_automatically_retryable(tmp_path, monkeypatch):

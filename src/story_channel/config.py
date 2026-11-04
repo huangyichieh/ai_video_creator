@@ -43,6 +43,7 @@ class Settings(Model):
     elevenlabs_tts_cost_per_million_characters: Money | None = None
     lip_sync_cost_per_second: Money | None = None
     sfx_cost_per_second: Money | None = None
+    music_cost_per_minute: Money | None = None
     ffmpeg_path: str | None = None
     render_timeout_sec: float = Field(default=1800, gt=0, allow_inf_nan=False)
 

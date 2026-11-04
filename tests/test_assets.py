@@ -178,7 +178,7 @@ def test_image_only_style_shared_across_all_visuals_and_replacement_invalidates(
     assert all(r.status == "stale" for r in state.records.values() if r.stage in ASSET_STAGES[:3])
     assert all(r.status == "succeeded" for r in state.records.values() if r.stage == "voices")
     assets.set_style_reference(None)
-    assert not assets.can_generate("character_references", assets.load())
+    assert assets.can_generate("character_references", assets.load())
 
 
 def test_style_image_validation_integrity_and_repair(assets):
@@ -277,9 +277,10 @@ def test_character_assets_available_before_story_and_reused_afterwards(tmp_path)
     creative.approve("storyboard")
     creative.run()
     state = engine.run()
-    assert state.next_stage == "character_review"
-    assert {key: record.asset.asset_id for key, record in state.records.items()} == original
-    engine.approve("characters")
+    # Completing story stages does not revoke approvals for unchanged characters.
+    assert state.next_stage == "background_review"
+    assert {key: state.records[key].asset.asset_id for key in original} == original
+    assert engine.character_approved("keeper", state)
     assert engine.run().next_stage == "background_review"
 
 

@@ -1,9 +1,11 @@
+from .error_report_ui import render_error, error_project, report_widget_key
 import streamlit as st
 
 from .animation_queue import AnimationQueue
+from .ui_panels import polling_fragment
 
 
-@st.fragment(run_every=1)
+@polling_fragment
 def waiting_table(engine):
     queue = AnimationQueue(engine)
     try:
@@ -22,4 +24,4 @@ def waiting_table(engine):
     st.caption(f"{data['mode']} · {data['status'].title()} · Generating: {generating} · Queued: {queued} · Finished: {finished}/{len(rows)}")
     st.dataframe(rows, hide_index=True, width="stretch", key=f"animation-waiting-table-{engine.project_id}-{data['run_id']}")
     if data.get("error"):
-        st.error(data["error"])
+        render_error(data["error"], project_path=error_project(locals()), key=report_widget_key('animation_queue_ui:25', locals()))

@@ -1,4 +1,5 @@
 """Provider-neutral per-scene video generation; FFmpeg composes the final timeline."""
+from .service_limits import limited
 from pathlib import Path
 import time
 
@@ -25,6 +26,7 @@ class LocalVideoProvider(ThreadLocalUsage):
 
 
 class OpenAIVideoProvider(OpenAIMedia):
+    @limited('openai')
     def generate_clip(self, prompt, references, config):
         from PIL import Image, ImageOps
         destination = Path(config.options["output_path"])

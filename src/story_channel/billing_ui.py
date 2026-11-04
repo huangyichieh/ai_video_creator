@@ -6,6 +6,7 @@ import os
 import time as clock
 
 import streamlit as st
+from .error_report_ui import render_error
 
 from .billing import admin_key, fetch_billing
 from .request_tracking import tracked_call
@@ -13,10 +14,22 @@ from .modules import stage_title
 
 
 def next_step_label(project):
+    if project.workflow_version == "world_episode":
+        if not project.world_project_id:
+            if "world" not in project.content_approvals:
+                return "World: Review and approve World settings"
+            if not project.steps.get("characters"):
+                return "Assets: Generate characters"
+            if project.asset_state != "approved":
+                return "Assets: " + (project.asset_step or "Generate reusable references").replace("_", " ").title()
+            return "Story/Episode: Create or select an episode"
+        for name in ("outline", "script", "prompts"):
+            if name not in project.content_approvals and (name == "outline" or project.steps.get(name) and project.steps[name].status == "succeeded"):
+                return "Story/Episode: Review and approve " + name.title()
     if project.current_step != "complete":
         name = {"story_review": "AI Review (Story)", "storyboard_review": "AI Review (Storyboard)"}.get(
             project.current_step, stage_title(project.current_step))
-        return f"Story & Settings: {name}"
+        return f"Story/Episode: {name}"
     if project.asset_state != "approved":
         stage = project.asset_step or "character_references"
         name = "Review assets" if stage == "complete" else stage.replace("_", " ").title()
@@ -31,11 +44,24 @@ def next_step_label(project):
 
 def workspace_metrics(project, manager):
     next_step, duration, billed = st.columns(3)
-    page, stage = next_step_label(project).split(": ", 1)
+    label = next_step_label(project)
+    if manager and project.workflow_version == "world_episode" and not project.world_project_id and "world" in project.content_approvals:
+        from .assets import AssetPipeline
+        from .assets_workflow import next_assets_action
+        try:
+            engine = AssetPipeline(manager, project.project_id)
+            action = next_assets_action(engine, engine.load())
+            label = "Story/Episode: Create or select an episode" if action.stage == "complete" else "Assets: " + action.title
+        except (OSError, ValueError):
+            pass
+    page, stage = label.split(": ", 1)
     next_step.metric("Next step:", stage, help=f"Workspace: {page}")
     hours, remainder = divmod(project.target_duration_sec, 3600)
     minutes, seconds = divmod(remainder, 60)
-    duration.metric("Target length (HH:MM:SS)", f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+    if project.workflow_version == "world_episode" and not project.world_project_id:
+        duration.metric("World", "Approved" if "world" in project.content_approvals else "Pending approval")
+    else:
+        duration.metric("Target length (HH:MM:SS)", f"{hours:02d}:{minutes:02d}:{seconds:02d}")
     from .cost_estimates import project_cost_estimate
     total, entries = project_cost_estimate(manager, project.project_id) if manager else (0, [])
     unknown = sum(entry["amount"] is None for entry in entries)
@@ -56,7 +82,7 @@ def billing_panel(project, *, detailed=False, manager=None):
     if not key:
         account_metric("Not configured")
         if detailed:
-            st.caption("Actual OpenAI billed costs: add OPENAI_ADMIN_KEY to .env and restart the app to enable automatic updates.")
+            st.caption("Actual OpenAI billed costs: save OPENAI_ADMIN_KEY in API key settings to enable automatic updates.")
         return
     today = datetime.now(timezone.utc).date()
     if detailed:
@@ -115,7 +141,9 @@ def billing_panel(project, *, detailed=False, manager=None):
     st.caption(f"{scope} · {period[0]} through {period[1]} UTC · Auto-refresh every 5 minutes while the app is open.")
     st.caption("OpenAI-reported costs may arrive later than generation results. This is an account-wide total, not an individual story's cost. Story attribution is available in Analytics under API request IDs and story attribution.")
     if state["error"]:
-        st.warning(state["error"] + (" Showing the last successful report." if report else ""))
+        render_error(state["error"] + (" Showing the last successful report." if report else ""),
+                     project_path=manager.project_path(project.project_id) if manager else None,
+                     task_key="billing:costs", key=f"billing-error-report-{project.project_id}")
     if report:
         st.caption("Last successful update: " + report.fetched_at.strftime("%Y-%m-%d %H:%M:%S UTC"))
         if detailed:

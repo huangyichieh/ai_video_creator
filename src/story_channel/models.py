@@ -60,12 +60,24 @@ class Manifest(Model):
     asset_approvals: dict[str, "ApprovalRecord"] = Field(default_factory=dict)
     render_state: Literal["not_started", "rendering", "stopped", "failed", "review", "approved", "stale", "continuity_review"] = "not_started"
     final_approval: "ApprovalRecord | None" = None
+    workflow_version: Literal["legacy", "world_episode"] = "legacy"
+    world_project_id: Identifier | None = None
+    canon_snapshot: dict[str, Any] = Field(default_factory=dict)
+    shared_assets_hash: str = ""
+    content_approvals: dict[str, "ApprovalRecord"] = Field(default_factory=dict)
     billing_project_id: str | None = Field(default=None, pattern=r"^proj_[A-Za-z0-9_-]+$")
 
 
 class Dialogue(Model):
     character_id: Identifier
     text: Nonempty
+    audio_tags: list[Nonempty] = Field(default_factory=list)
+
+
+class SFXTiming(Model):
+    description: Nonempty
+    duration_sec: float = Field(ge=.5,le=30,allow_inf_nan=False)
+    loop: bool = False
 
 
 class Scene(Model):
@@ -75,13 +87,24 @@ class Scene(Model):
     location_id: Identifier
     character_ids: list[Identifier] = Field(default_factory=list)
     narration: str = ""
+    narration_audio_tags: list[Nonempty] = Field(default_factory=list)
     dialogue: list[Dialogue] = Field(default_factory=list)
     action: str = ""
     shot_type: str = ""
     camera_movement: str = ""
+    camera_start_angle: float | None = Field(default=None, allow_inf_nan=False)
+    camera_end_angle: float | None = Field(default=None, allow_inf_nan=False)
+    camera_pitch: float = Field(default=0,ge=-89,le=89,allow_inf_nan=False)
+    camera_fov: float = Field(default=70,gt=0,lt=170,allow_inf_nan=False)
+    target_area: str = ""
+    character_position: dict[str,float] | str | None = None
+    interaction_target: str = ""
+    prop_ids: list[Identifier] = Field(default_factory=list)
     visual_description: str = ""
     bgm_mood: str = ""
+    bgm_id: Identifier | None = None
     sfx: list[str] = Field(default_factory=list)
+    sfx_timing: list[SFXTiming] = Field(default_factory=list,exclude_if=lambda value:not value)
     asset_refs: list[Identifier] = Field(default_factory=list)
     status: Literal["draft", "approved", "generating", "ready", "failed"] = "draft"
 

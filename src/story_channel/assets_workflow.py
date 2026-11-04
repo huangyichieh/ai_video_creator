@@ -1,5 +1,6 @@
 """Assets-page orchestration: references, identity approval, then voice auditions."""
 from dataclasses import dataclass
+from .files import input_hash
 
 from .animation import AnimationDirector, require_voice, voice_signature
 from .identity import IdentityManager
@@ -14,6 +15,24 @@ class AssetsAction:
     title: str
     detail: str
     runnable: bool = False
+
+
+def animation_asset_readiness(engine,state):
+    """Minimum reusable inventory hint, independent of the remaining episode gates."""
+    from .background_library import BackgroundLibrary,locations
+    characters = engine.creative.artifact("characters").characters if (engine.path/"characters.json").exists() else []
+    backgrounds = locations(engine.creative)
+    tasks = engine.tasks(state)
+    return {"characters":len(characters),"backgrounds":len(backgrounds),
+        "approvedCharacters":sum(engine.character_approved(character.character_id,state,tasks) for character in characters),
+        "approvedBackgrounds":sum(BackgroundLibrary(engine).approved(location.location_id,state,tasks) for location in backgrounds)}
+
+
+def minimum_asset_inventory(engine):
+    from .background_library import locations
+    characters = engine.creative.artifact("characters").characters if (engine.path/"characters.json").exists() else []
+    backgrounds = locations(engine.creative) if (engine.path/"world.json").exists() else []
+    return len(characters),len(backgrounds)
 
 
 def preview_current(engine, profile, preview):
@@ -72,7 +91,7 @@ def identity_checklist(engine, state):
         except (OSError, ValueError):
             characters, locations = set(), set()
     rows = []
-    for name, stage, ids, gate in (("Character Reference Packs", "character_references", characters, "characters"),
+    for name, stage, ids, gate in (("Character References", "character_references", characters, "characters"),
                                     ("Locations / Backgrounds", "backgrounds", locations, "backgrounds")):
         generated = sum(bool((record := state.records.get(f"{stage}:{subject}")) and record.status == "succeeded"
                              and engine._intact(record)) for subject in ids)
@@ -114,46 +133,86 @@ def identity_checklist(engine, state):
 
 def next_assets_action(engine, state):
     manifest = engine.manager.load(engine.project_id)
+    if manifest.workflow_version == "world_episode":
+        characters,backgrounds = minimum_asset_inventory(engine)
+        if characters and backgrounds:
+            return AssetsAction("complete","Assets prerequisite done","At least 1 character and 1 background exist. SFX, props and style checks are optional; individual scene references and production approvals are handled where needed.")
     if any(not manifest.steps.get(step) or manifest.steps[step].status != "succeeded" for step in ("world", "characters")):
-        return AssetsAction("waiting_for_characters", "Complete World / Characters", "Complete current World and Characters on Story & Settings before generating identity assets.")
+        return AssetsAction("waiting_for_characters", "Complete World / Characters", "Approve World, then generate the shared cast on Assets > Character References.")
     identity = IdentityManager(engine.manager, engine.project_id)
     library = identity.load()
     if library:
         try:
             if library.source_hash != identity.source():
-                return AssetsAction("identity_library", "Rebuild Identity Library", "World or Characters changed. Rebuild registered identities before generating references.", True)
+                title = "Rebuild shared asset settings" if manifest.workflow_version == "world_episode" else "Rebuild Identity Library"
+                return AssetsAction("identity_library", title, "World or Characters changed. Rebuild registered settings before generating references.", True)
             identity.validate(library)
         except (OSError, ValueError) as exc:
-            return AssetsAction("identity_settings", "Identity library settings", str(exc))
+            title = "Shared asset settings" if manifest.workflow_version == "world_episode" else "Identity library settings"
+            return AssetsAction("identity_settings", title, str(exc))
+    if manifest.workflow_version == "world_episode" and not manifest.world_project_id and state.next_stage != "character_references":
+        checks = {c.character_id: engine.character_requirements(c.character_id, state)
+                  for c in engine.creative.artifact("characters").characters}
+        voice = [cid for cid, parts in checks.items() if not parts.get("Voice", False)]
+        if voice:
+            missing_ids = [cid for cid in voice if not library or not library.voices[cid].voice_id.strip()]
+            return AssetsAction("voice_settings" if missing_ids else "voice_samples", "Complete character voices",
+                "Save a provider Voice ID, generate a neutral sample and approve the current voice samples for: " + ", ".join(voice) + ".")
+        costumes = [cid for cid, parts in checks.items() if not parts.get("Costumes", False)]
+        if costumes:
+            return AssetsAction("character_costumes", "Complete character costumes",
+                "Generate a current visual for every registered costume for: " + ", ".join(costumes) + ".")
     reference_steps = {
-        "character_references": ("Character Reference Packs", "Build default identity registrations if needed, then generate character references one at a time."),
+        "character_references": ("Character References", "Build default identity registrations if needed, then generate character references one at a time."),
         "backgrounds": ("Locations / Backgrounds", "Generate current background references, one at a time."),
     }
     if state.next_stage in reference_steps:
         title, detail = reference_steps[state.next_stage]
         return AssetsAction(state.next_stage, title, detail, engine.can_generate(state.next_stage, state))
+    if state.next_stage == "background_master_review":
+        return AssetsAction("background_master_review", "Approve background masters", "Review all four directional masters and their shared overlaps, then approve the complete reference set.")
     if state.next_stage in ("character_review", "background_review"):
-        title = "Approve Character Reference Packs" if state.next_stage == "character_review" else "Approve Locations / Backgrounds"
+        title = "Approve Character References" if state.next_stage == "character_review" else "Approve Locations / Backgrounds"
         return AssetsAction(state.next_stage, title, "Review the images and use the reference approval controls below.")
     if state.next_stage == "waiting_for_creative":
-        return AssetsAction(state.next_stage, "Complete Story & Settings", "Complete story/storyboard approvals and Prompts to unlock backgrounds.")
+        return AssetsAction(state.next_stage, "Complete Story/Episode", "Complete the episode's content approvals before generating scene assets.")
     if library is None:
-        return AssetsAction("identity_library", "Build Identity Library", "Build costume, prop, location and voice registrations. Do this before references when possible, as it can make references outdated.", True)
+        title = "Build shared asset settings" if manifest.workflow_version == "world_episode" else "Build Identity Library"
+        return AssetsAction("identity_library", title, "Build costume, prop, location and voice registrations. Do this before references when possible, as it can make references outdated.", True)
     missing = [cid for cid, profile in library.voices.items() if not profile.voice_id.strip()]
     if missing:
+        if manifest.workflow_version == "world_episode":
+            return AssetsAction("voice_settings", "Configure character voices", "Open each character's Voice tab and save a provider Voice ID for: " + ", ".join(missing) + ". For ElevenLabs, use My Voices > Copy voice ID.")
         return AssetsAction("voice_settings", "Configure Voice Profiles", "Open Assets → Voice Profiles and save a provider Voice ID for each character: " + ", ".join(missing) + ". For ElevenLabs, use My Voices → ⋯ → Copy voice ID. Then approve the identity library.")
     try:
         identity.require_approved()
     except (OSError, ValueError) as exc:
+        if manifest.workflow_version == "world_episode":
+            return AssetsAction("identity_settings", "Fix shared asset settings", str(exc) + ". Check character/background approvals and Shared asset settings in Props.")
         return AssetsAction("identity_approval", "Approve Identity Library", str(exc) + ". Use the identity approval button above.")
+    if manifest.workflow_version == "world_episode" and not manifest.world_project_id:
+        from .library_media import LibraryMedia
+        media = LibraryMedia(engine.manager, engine.project_id)
+        samples = media.load()
+        if not all(media.voice_approved(cid, profile, samples) for cid, profile in library.voices.items()):
+            return AssetsAction("voice_samples", "Generate and approve voice samples", "Open Assets > Character References > Voice. Generate a neutral sample, listen to it and approve each character's current samples.")
+        return AssetsAction("complete", "Continue to Story/Episode", "Required assets are approved. SFX, props and style checks are optional; style checks target only new or updated assets.")
     director = AnimationDirector(engine.manager, engine.project_id)
     direction = director.load()
+    if manifest.world_project_id and direction is None:
+        from .library_media import LibraryMedia
+        shared = LibraryMedia(engine.manager, engine.project_id).load()
+        if all(LibraryMedia(engine.manager, engine.project_id).voice_approved(cid, profile, shared) for cid, profile in library.voices.items()):
+            if not engine.demo and not state.voice_map.get("narrator", "").strip() and any(
+                    s.narration.strip() for s in engine.creative.artifact("storyboard").scenes):
+                return AssetsAction("narrator", "Configure narrator voice", "Save the narrator provider Voice ID on Assets → Character References → Voice.")
+            return AssetsAction("complete", "Assets ready → Animations", "Shared reference and voice approvals are ready. Build direction on Animations.")
     try:
         if direction is None:
             raise ValueError("Voice profiles have not been set up")
         director.validate_plan(direction.plan)
     except (OSError, ValueError):
-        return AssetsAction("voice_profiles", "Set up Voice Profiles", "Prepare current voice profiles and direction from the approved identity library.", True)
+        return AssetsAction("voice_profiles", "Set up Voice Profiles", "Prepare current voice profiles and direction from approved references and saved voice settings.", True)
     if missing_previews(engine, direction):
         return AssetsAction("voice_previews", "Voice auditions", "Generate missing/outdated baseline auditions and refresh any outdated emotion samples. Then listen and approve in Voice Profiles.", True)
     pending = [cid for cid in direction.plan.voices if not character_voice_approval(engine, direction, cid)[0]]

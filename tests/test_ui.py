@@ -21,7 +21,7 @@ def test_streamlit_create_generate_review_edit_and_complete(tmp_path, monkeypatc
     root = tmp_path / "channel"
     monkeypatch.setenv("STORY_DATA_ROOT", str(root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     assert not app.exception
     widget(app.text_input, "Title").set_value("UI sample")
     widget(app.number_input, "Hours").set_value(1)
@@ -70,7 +70,7 @@ def test_streamlit_create_generate_review_edit_and_complete(tmp_path, monkeypatc
 
 def test_streamlit_invalid_project_shows_error(tmp_path, monkeypatch):
     monkeypatch.setenv("STORY_DATA_ROOT", str(tmp_path / "channel"))
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     widget(app.button, "Create project").click().run()
     assert not app.exception
     assert app.error
@@ -84,7 +84,7 @@ def test_overview_generates_one_stage_per_click_and_blocks_for_approval(tmp_path
     source = tmp_path / "outline.md"
     source.write_text("A keeper protects the lighthouse.", encoding="utf-8")
     project = manager.create("Step by step", source)
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     assert app.session_state["workspace_page"] == "Story & Settings"
     assert [item.label for item in app.button if item.key and item.key.startswith("nav-")] == ["Story & Settings", "Assets", "Animations", "Final", "Analytics"]
     assert not app.radio
@@ -117,7 +117,7 @@ def test_overview_generates_one_stage_per_click_and_blocks_for_approval(tmp_path
 
 def test_streamlit_rejects_zero_target_length(tmp_path, monkeypatch):
     monkeypatch.setenv("STORY_DATA_ROOT", str(tmp_path / "channel"))
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     widget(app.text_input, "Title").set_value("Zero duration")
     widget(app.text_area, "Story outline").set_value("A short story.")
     widget(app.number_input, "Hours").set_value(0)
@@ -143,7 +143,7 @@ def test_stage_browser_shows_outputs_inputs_history_and_activity(tmp_path, monke
     pipeline.run()
     pipeline.approve("storyboard")
     pipeline.run()
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     for step in ("world", "characters", "story", "script", "storyboard", "prompts"):
         app.button(key=f"browse-{step}").click().run()
         assert not app.exception, step
@@ -178,7 +178,7 @@ def test_stage_browser_handles_missing_and_corrupt_outputs(tmp_path, monkeypatch
     source = tmp_path / "outline.md"
     source.write_text("A lighthouse story.", encoding="utf-8")
     project = manager.create("Empty stage", source)
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     app.button(key="browse-world").click().run()
     assert not app.exception
     assert any("No saved output" in item.value for item in app.info)
@@ -202,7 +202,7 @@ def test_browser_edit_mark_revert_and_save(tmp_path, monkeypatch, caplog):
     pipeline = Pipeline(manager, project.project_id, demo=True)
     pipeline.generate("world")
     saved_world = (pipeline.path / "world.json").read_text(encoding="utf-8")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     assert not any(item.label == "Automatic generation (optional)" for item in app.expander)
     app.button(key="browse-world").click().run()
     assert "Edit World JSON" in {item.label for item in app.text_area}
@@ -269,7 +269,7 @@ def test_browser_typo_recommendations_use_draft_without_applying_changes(tmp_pat
                           dict(source="world", field="era", original="era", replacement="age", explanation="Second correction")])
 
     monkeypatch.setattr("story_channel.ui.check_typos", fake_check)
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     app.button(key="browse-world").click().run()
     data = json.loads(widget(app.text_area, "Edit World JSON").value)
     data["era"] = "teh era"
@@ -321,7 +321,7 @@ def test_dialog_openai_regeneration_refreshes_content_and_keeps_history(tmp_path
             return output
 
     monkeypatch.setattr("story_channel.pipeline.OpenAILLMProvider", lambda **kwargs: FakeOpenAI())
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     app.button(key="browse-world").click().run()
     app.button(key="regenerate-browser-openai").click().run()
     assert not app.exception
@@ -348,8 +348,8 @@ def test_overview_outline_and_outline_page_typo_apply_then_save(tmp_path, monkey
         return TypoReport(summary="One typo", suggestions=[dict(source="outline", field="text", original="teh",
                           replacement="the", explanation="Correct spelling")])
 
-    monkeypatch.setattr("story_channel.ui.check_typos", fake_check)
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    monkeypatch.setattr("legacy_pages.check_typos", fake_check)
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     assert any(item.value == "teh lighthouse" for item in app.markdown)
     app.button(key="nav-story-settings").click().run()
     app.button(key="check-outline-typos").click().run()
@@ -375,7 +375,7 @@ def test_human_story_approval_dialog_shows_complete_package_and_approves(tmp_pat
     project = manager.create("Story approval package", source)
     flow = Pipeline(manager, project.project_id, demo=True)
     flow.run()
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     app.button(key="browse-review").click().run()
     assert not app.exception
     assert {"Outline", "World", "Characters", "Story", "AI Review (Story)", "Project and activity"} <= {tab.label for tab in app.tabs}
@@ -417,7 +417,7 @@ def test_human_story_approval_dialog_blocks_missing_review(tmp_path, monkeypatch
     source = tmp_path / "outline.md"
     source.write_text("A keeper story.", encoding="utf-8")
     project = manager.create("Not ready", source)
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     app.button(key="browse-review").click().run()
     assert not app.exception
     assert not any(b.key == "ai-review-save-story" for b in app.button)
@@ -437,7 +437,7 @@ def test_ai_storyboard_dialog_shows_script_and_storyboard_then_approves_unchange
     flow.run()
     flow.approve("story")
     flow.run()
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     app.button(key="browse-storyboard-approval").click().run()
     assert not app.exception
     assert {"Script", "Storyboard"} <= {tab.label for tab in app.tabs}
@@ -474,7 +474,7 @@ def test_human_storyboard_approval_blocks_missing_outputs(tmp_path, monkeypatch)
     source = tmp_path / "outline.md"
     source.write_text("An outline.", encoding="utf-8")
     project = manager.create("Not ready", source)
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     app.button(key="browse-storyboard-approval").click().run()
     assert not app.exception
     assert app.button(key="ai-review-save-storyboard").disabled

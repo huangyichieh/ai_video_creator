@@ -33,7 +33,8 @@ class RenderPipeline:
         self.finishing = Finishing(self, lip_provider=lip_provider, sfx_provider=sfx_provider, vfx_provider=vfx_provider)
 
     def load(self):
-        return RenderState.model_validate_json(self.state_path.read_text(encoding="utf-8")) if self.state_path.exists() else RenderState() if self.assets.demo else RenderState(options=RenderOptions(provider="runway", video_model="klingO3_pro", continuity_animation=True))
+        from .file_cache import read_model
+        return read_model(self.state_path, RenderState) if self.state_path.exists() else RenderState() if self.assets.demo else RenderState(options=RenderOptions(provider="runway", video_model="klingO3_pro", continuity_animation=True))
 
     def _save(self, state):
         atomic_write(self.state_path, state.model_dump_json(by_alias=True, indent=2) + "\n")
@@ -48,10 +49,12 @@ class RenderPipeline:
         self.manager.save(manifest)
 
     def _input(self):
+        from .storyboard_asset_check import require
+        require(self.manager,self.project_id)
         production = self.assets.inspect()
         manifest = self.manager.load(self.project_id)
         if production.next_stage != "complete" or "assets" not in manifest.asset_approvals:
-            raise ApprovalRequired("Complete and approve the asset batch before rendering video.")
+            raise ApprovalRequired("Generate and approve this episode's scene inputs before rendering video.")
         board = sorted(self.assets.creative.artifact("storyboard").scenes, key=lambda scene: scene.order)
         if not board or set(production.scenes) != {s.scene_id for s in board}:
             raise ValueError("Every storyboard scene needs current image, audio and subtitle exports.")
@@ -63,7 +66,7 @@ class RenderPipeline:
         self.assets.creative._refresh()
         current, _ = self.assets._refresh()
         if current.next_stage != "complete" or "assets" not in self.manager.load(self.project_id).asset_approvals:
-            raise ApprovalRequired("Complete and approve the current asset batch before rendering video.")
+            raise ApprovalRequired("Generate and approve this episode's current scene inputs before rendering video.")
         if current.model_dump(exclude={"updated_at"}) != production.model_dump(exclude={"updated_at"}):
             raise ValueError("Assets changed before rendering started. Refresh and retry.")
         state = self.load()
@@ -87,11 +90,24 @@ class RenderPipeline:
                         ambience.extend(shot.ambience_cues)
                 cues.extend(line.sfx_cue for line in direction.plan.performances if line.scene_id == scene.scene_id and line.sfx_cue.strip())
             cues, ambience = list(dict.fromkeys(cues)), list(dict.fromkeys(ambience))
+            from .bgm_library import scene_music
+            reusable_music = scene_music(self.manager,self.project_id,scene)
             state.music_plan.scenes.setdefault(scene.scene_id, SceneSound(bgm_mood=scene.bgm_mood or "ambient", cues=[
                 SoundCue(name=name, at=production.scenes[scene.scene_id].duration*(i+1)/(len(cues)+1),
                     duration=min(2., production.scenes[scene.scene_id].duration/(len(cues)+1)))
                 for i, name in enumerate(cues)], ambience=[SoundCue(name=name, at=0,
-                    duration=production.scenes[scene.scene_id].duration, loop=True) for name in ambience]))
+                    duration=production.scenes[scene.scene_id].duration, loop=True) for name in ambience],
+                bgm_file=reusable_music["file"] if reusable_music else None,
+                bgm_source="Storyboard BGM: "+reusable_music["source"] if reusable_music else "Procedurally synthesized locally; no third-party recording"))
+            sound = state.music_plan.scenes[scene.scene_id]
+            if reusable_music and (not sound.bgm_file or sound.bgm_source.startswith("Storyboard BGM:")):
+                sound.bgm_file,sound.bgm_source = reusable_music["file"],"Storyboard BGM: "+reusable_music["source"]
+            from .storyboard_asset_check import sounds,sound_id,intact
+            sound_assets = sounds(self.manager,self.project_id)
+            for cue in state.music_plan.scenes[scene.scene_id].cues:
+                item = sound_assets.get(sound_id(cue.name),{})
+                if intact(self.path,item) and (not cue.file or cue.source.startswith("Storyboard SFX:")):
+                    cue.file,cue.source = item["file"],"Storyboard SFX: "+item["source"]
             record = state.scenes.setdefault(scene.scene_id, RenderScene(scene_id=scene.scene_id))
             if record.status == "running":
                 record.status, record.error = "failed", "Rendering was interrupted. Retry to resume the saved video job or clip."
@@ -157,17 +173,37 @@ class RenderPipeline:
                 previous = ShotRenderer(director, self.ffmpeg, None).previous_frame(scene, self.assets.creative.artifact("storyboard").scenes)
                 animation = {"direction": director.direction_hash(director.load()), "previousFrame": file_hash(previous) if previous else None}
         finishing = self.finishing.signature(scene.scene_id)
+        visual = None
+        if self.manager.load(self.project_id).world_project_id:
+            from .scene_production import SceneProduction
+            source = SceneProduction(self.manager, self.project_id).visuals().get(scene.scene_id, {})
+            visual = {name: source.get(name) for name in ("sourceHash", "fileHash", "approval")}
         return input_hash({"scene": scene.model_dump(mode="json"), "assets": production.scenes[scene.scene_id].model_dump(mode="json"),
                            "options": state.options.model_dump(mode="json", exclude={"continuity_animation"} if not state.options.continuity_animation else set()), "sound": self._sound_key(state.music_plan.scenes[scene.scene_id]),
                            "modification": [record.modification_prompt, record.modification_source],
                              **({"animation": animation} if state.options.continuity_animation else {}),
-                             **({"finishing": finishing} if finishing is not None else {}), "v": 1})
+                             **({"finishing": finishing} if finishing is not None else {}),
+                             **({"approvedVisual": visual} if visual is not None else {}), "v": 1})
 
     def _final_key(self, state, board):
         return input_hash({"scenes": [(s.scene_id, state.scenes[s.scene_id].input_hash, state.scenes[s.scene_id].file_hash) for s in board],
                            "source": state.source_hash, "subtitles": state.options.subtitles})
 
     def configure(self, options=None, music_plan=None):
+        if self.manager.load(self.project_id).world_project_id and options is not None and music_plan is None:
+            # Visual generation precedes recorded voices in the episode flow.
+            with project_lock(self.path):
+                state = self.load()
+                updated = RenderOptions.model_validate(options)
+                if updated != state.options:
+                    state.options = updated
+                    state.approval = None
+                    if state.scenes:
+                        state.status = "stale"
+                    for scene in state.scenes.values():
+                        scene.status, scene.approved_hash = "stale", ""
+                self._save(state)
+                return state
         production, board = self._input()
         with project_lock(self.path):
             state = self._refresh(production, board)
@@ -207,6 +243,13 @@ class RenderPipeline:
     def _clip(self, scene, production, state, work, force):
         record = state.scenes[scene.scene_id]
         options = state.options
+        if self.manager.load(self.project_id).world_project_id:
+            from .scene_production import SceneProduction
+            clip = SceneProduction(self.manager, self.project_id).fitted_visual(scene.scene_id, options,
+                production.scenes[scene.scene_id].duration, work / "approved_visual.mp4")
+            record.clip, record.clip_hash = clip, file_hash(self.assets.local_path(clip.file_path))
+            self._save(state)
+            return self.assets.local_path(clip.file_path)
         if options.continuity_animation:
             from .animation import AnimationDirector
             from .animation_rendering import ShotRenderer
@@ -260,8 +303,8 @@ class RenderPipeline:
                 from .balanced_providers import KlingVideoProvider
                 if isinstance(provider, KlingVideoProvider):
                     from .provider_prompts import compile_prompt
-                    provider_prompt = compile_prompt(self.assets.creative, prompt, video=True)
-                clip = tracked_call(self.manager, self.project_id, "render:video", provider.generate_clip, provider_prompt, refs, config)
+                    provider_prompt = compile_prompt(self.assets.creative, prompt, video=True, task_key=f"render:video:{scene.scene_id}:prompt")
+                clip = tracked_call(self.manager, self.project_id, "render:video", provider.generate_clip, provider_prompt, refs, config, task_key=f"render:video:{scene.scene_id}")
                 path = Path(clip.file_path).resolve()
                 if not path.is_relative_to(self.path):
                     raise ValueError("Video provider returned a path outside the project")

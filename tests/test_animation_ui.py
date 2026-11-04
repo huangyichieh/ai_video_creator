@@ -14,7 +14,7 @@ def test_animation_ui_build_edit_revert_save_and_voice_preview(tmp_path,monkeypa
     monkeypatch.setenv('STORY_DATA_ROOT',str(manager.root))
     monkeypatch.setenv('STORY_LLM_PROVIDER','demo')
     monkeypatch.setenv('STORY_ASSET_PROVIDER','demo')
-    app=AppTest.from_file(str(Path(__file__).parents[1]/'app.py'),default_timeout=30).run()
+    app=AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"),default_timeout=30).run()
     app.button(key='nav-animations').click().run()
     app.button(key=f'animation-build-{project.project_id}').click().run()
     assert not app.exception
@@ -68,8 +68,8 @@ def test_animation_cli_and_legacy_artifacts_remain_compatible(tmp_path,capsys):
 
 
 @pytest.mark.parametrize("action,method,hint", [
-    ("animation-preview", "preview_voice", "Generating voice preview..."),
-    ("animation-emotion-generate", "preview_voice", "Generating emotion sample..."),
+    ("animation-preview", "preview_voice", "Generating…"),
+    ("animation-emotion-generate", "preview_voice", "Generating…"),
     ("animation-voice-approve", "approve_voice", "Approving..."),
 ])
 def test_audition_actions_show_loading_without_page_banners(tmp_path, monkeypatch, action, method, hint):

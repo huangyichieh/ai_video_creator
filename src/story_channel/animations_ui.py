@@ -1,9 +1,11 @@
 """Scene production is separate from final video assembly."""
+from .error_report_ui import render_error, error_project, report_widget_key
+from .generation_ui import generation_button
 import streamlit as st
 import json
 from threading import Event
 
-from .animations_workflow import TABS, animation_snapshot, generate_animations
+from .animations_workflow import TABS, STAGE_TABS, animation_snapshot, generate_animations
 from .animation import AnimationDirector
 from .rendering import RenderPipeline
 from .ui_tasks import busy, launch
@@ -50,12 +52,12 @@ def animation_pipeline_controls(manager, project_id):
         st.button(action.title, key=f"animation-workflow-review-{project_id}", on_click=navigate, disabled=busy())
     next_button, pipeline_button = st.columns(2)
     approval_step = action.stage.endswith("_review") and action.page == "Animations"
-    generate_next = next_button.button(("Next stage: " if approval_step else "Generate next stage: ") + action.title,
+    generate_next = generation_button(("Next stage: " if approval_step else "Generate next stage: ") + action.title,
                                       key=f"animation-workflow-next-{project_id}", disabled=busy() or (dirty or not action.runnable) and not approval_step,
-                                      on_click=navigate if approval_step else None)
+                                      on_click=navigate if approval_step else None, container=next_button)
     generate_next = generate_next and not approval_step
-    generate_pipeline = pipeline_button.button("Generate animations (pipeline)", key=f"animation-workflow-run-{project_id}", disabled=busy() or dirty or not action.runnable,
-                                               help="Generate missing work on Animations until a manual approval or setting is required. Never assemble or publish Final.")
+    generate_pipeline = generation_button("Generate animations (pipeline)", key=f"animation-workflow-run-{project_id}", disabled=busy() or dirty or not action.runnable,
+                                               help="Generate missing work on Animations until a manual approval or setting is required. Never assemble or publish Final.", container=pipeline_button)
     if generate_next or generate_pipeline:
         from .animation_queue import AnimationQueue
         queue = AnimationQueue(engine)
@@ -63,7 +65,7 @@ def animation_pipeline_controls(manager, project_id):
             run_id = queue.start(action, pipeline=generate_pipeline)
         except (OSError, ValueError, RuntimeError) as exc:
             queue.finish("failed", str(exc))
-            st.error(str(exc))
+            render_error(str(exc), project_path=error_project(locals()), key=report_widget_key('animations_ui:67', locals()))
             return
         event = Event()
         engine.stop_requested = engine.assets.stop_requested = event.is_set
@@ -89,41 +91,83 @@ def animation_pipeline_controls(manager, project_id):
     return engine.assets.load(), engine.load()
 
 
-def animations_page(manager, project_id):
+def animations_page(manager, project_id, *, check_assets_only=False):
+    from .storyboard_asset_check import available
+    if not available(manager,project_id):
+        st.info("Approve this episode's Storyboard on Story/Episode to open Check assets.")
+        return
+    if check_assets_only:
+        st.caption("Prepare the assets used by this episode's saved Storyboard. Story approvals are required before generating animations.")
+        tabs = st.tabs(["Check assets"],key=f"page-tab-check-assets-only-{project_id}")
+        with tabs[0]:
+            from .storyboard_asset_check_ui import render as check_assets
+            check_assets(manager,project_id,allow_animation=False)
+        st.info("Approve this episode's Outline, Story, Script, Storyboard and Prompts on Story/Episode to unlock the remaining animation stages.")
+        return
+    from .animation_formats_ui import settings
+    settings(RenderPipeline(manager,project_id))
     st.caption("Animations generates individual scenes and shots. Final assembles approved scenes into a complete video.")
-    st.markdown("**1. Scene images → 2. Direction & performance → 3. Voices & input review → 4. Video & effects → 5. Scene review & continuity → Final**")
+    st.markdown("**Check assets → Scene images → Direction & performance → Animated scenes → Voices & input → Video effects → Sound effects → Scene review & continuity → Final**")
     snapshot = animation_pipeline_controls(manager, project_id)
     production, render = snapshot if snapshot else (None, None)
     key = f"page-tab-animations-{project_id}"
-    old_tabs = {"Scene / Shot list & Performance": TABS[1], "Scene images & Voice generation": TABS[0],
-                "Video, Lip-sync & SFX / VFX": TABS[3], "Scene chaining & Continuity QA": TABS[4]}
+    old_tabs = {"Scene / Shot list & Performance": STAGE_TABS[1], "Scene images & Voice generation": STAGE_TABS[0],
+                "Video, Lip-sync & SFX / VFX": STAGE_TABS[2], "Scene chaining & Continuity QA": STAGE_TABS[6],
+                "1. Scene images": STAGE_TABS[0], "2. Direction & performance": STAGE_TABS[1], "3. Voices & input review": STAGE_TABS[3],
+                "4. Video & effects": STAGE_TABS[2], "5. Scene review & continuity": STAGE_TABS[6]}
     if st.session_state.get(f"page-tab-scene-inputs-{project_id}") in ("Voice generation", "Scene input QA"):
-        old_tabs["Scene images & Voice generation"] = TABS[2]
+        old_tabs["Scene images & Voice generation"] = STAGE_TABS[3]
     if st.session_state.get(key) in old_tabs:
         st.session_state[key] = old_tabs[st.session_state[key]]
     tabs = st.tabs(list(TABS),
                    key=f"page-tab-animations-{project_id}", on_change="rerun")
+    from .storyboard_asset_check import check
+    required = check(manager,project_id)
     with tabs[0]:
+        from .storyboard_asset_check_ui import render as check_assets
+        required = check_assets(manager,project_id,required)
+    if any(not item["Ready"] for item in required) and manager.load(project_id).world_project_id:
+        st.info("Complete Check assets before continuing to the other animation stages.")
+        return
+    with tabs[1]:
         from .animation_inputs_ui import input_stage
         input_stage(manager, project_id, images=True, state=production)
-    with tabs[1]:
-        st.subheader("2. Review direction and performance")
-        st.caption("Review the scene images from step 1. Edit the shots and dialogue delivery, then approve animation/references and performance direction before step 3.")
+    with tabs[2]:
+        st.subheader("Direction & performance")
+        st.caption("Review each scene snapshot and its editable direction suggestions, then approve direction, references and performance.")
         from .animation_ui import animation_direction
         animation_direction(manager, project_id)
-    with tabs[2]:
-        input_stage(manager, project_id, images=False, state=production)
+        if manager.load(project_id).world_project_id:
+            from .scene_production_ui import direction_cards
+            with st.container(key=f"scene-direction-review-{project_id}"):
+                direction_cards(manager, project_id)
     with tabs[3]:
-        st.subheader("4. Generate video and effects")
-        st.caption("Configure saved video and effect settings, then generate scenes/shots and optional effects. Review the resulting scenes in step 5.")
-        from .final_ui import render_workspace
-        render_workspace(manager, project_id, animations=True, show_scene_review=False, state=render)
+        if manager.load(project_id).world_project_id:
+            from .scene_production_ui import animated_scenes
+            with st.container(key=f"animated-visual-review-{project_id}"):
+                animated_scenes(manager, project_id)
+        else:
+            from .final_ui import render_workspace
+            render_workspace(manager, project_id, animations=True, show_scene_review=False, state=render, show_effects=False)
     with tabs[4]:
-        st.subheader("5. Review scenes and continuity")
-        st.caption("Review each finished scene and approve continuity when enabled. Approve every scene here, then continue to Final for assembly.")
+        input_stage(manager, project_id, images=False, state=production)
+    with tabs[5]:
+        st.subheader("Video effects")
+        from .finishing_ui import finishing_panel
+        engine = RenderPipeline(manager, project_id)
+        finishing_panel(engine, engine.load(), section="video")
+    with tabs[6]:
+        st.subheader("Sound effects")
+        from .scene_production_ui import sound_effects
+        sound_effects(manager, project_id)
+    with tabs[7]:
+        st.subheader("Scene review & continuity")
+        if manager.load(project_id).world_project_id:
+            from .final_ui import render_workspace
+            render_workspace(manager, project_id, animations=True, show_scene_review=False, state=render, show_settings=False, show_effects=False)
+        st.caption("Review finished scenes with voices and effects. Approve every scene and continuity before Final assembly.")
         from .final_ui import scene_review_workspace
         scene_review_workspace(manager, project_id, state=render)
-        from .rendering import RenderPipeline
         from .animation_ui import animation_continuity
         engine = RenderPipeline(manager, project_id)
         if engine.load().options.continuity_animation:

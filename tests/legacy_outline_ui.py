@@ -1,7 +1,7 @@
 """Quick outline editing from the story workflow."""
 import streamlit as st
 
-from .ui_tasks import busy, launch
+from story_channel.ui_tasks import busy, launch
 
 
 def close_outline_dialog():

@@ -1,4 +1,5 @@
 """Replaceable image, speech, and timestamp adapters. No calls until generation."""
+from .service_limits import limited
 import base64
 import io
 import os
@@ -31,6 +32,7 @@ class ThreadLocalUsage:
 class OpenAIMedia(ThreadLocalUsage):
     def __init__(self, client=None, *, timeout=120):
         self.client = client
+        self._owns_client = client is None
         self.timeout = timeout
         self.last_usage = {}
         self._client_lock = Lock()
@@ -38,12 +40,15 @@ class OpenAIMedia(ThreadLocalUsage):
     def _request(self, callback):
         from openai import APIConnectionError, APIStatusError, OpenAI
         self.last_usage = {}
-        if self.client is None:
+        if self._owns_client:
             with self._client_lock:
+                key = os.environ.get("OPENAI_API_KEY", "").strip()
+                if not key:
+                    raise ProviderError("Set OPENAI_API_KEY in .env before generating OpenAI assets.")
                 if self.client is None:
-                    if not os.environ.get("OPENAI_API_KEY"):
-                        raise ProviderError("Set OPENAI_API_KEY in .env before generating OpenAI assets.")
-                    self.client = OpenAI(timeout=self.timeout, max_retries=0)
+                    self.client = OpenAI(api_key=key, timeout=self.timeout, max_retries=0)
+                else:
+                    self.client.api_key = key
         from .request_tracking import track_client
         track_client(self.client)
         try:
@@ -91,6 +96,7 @@ class OpenAIMedia(ThreadLocalUsage):
 
 
 class OpenAIImageProvider(OpenAIMedia):
+    @limited('openai')
     def generate(self, prompt: str, references: list[Path], config: ProviderConfig) -> GeneratedAsset:
         options = config.options
         params = dict(model=config.model, prompt=prompt, n=1, size=options.get("size", "1536x1024"),
@@ -98,6 +104,8 @@ class OpenAIImageProvider(OpenAIMedia):
         with ExitStack() as stack:
             if references:
                 params["image"] = [stack.enter_context(path.open("rb")) for path in references]
+                if options.get("edit_mask"):
+                    params["mask"] = stack.enter_context(Path(options["edit_mask"]).open("rb"))
                 response = self._request(lambda client: client.images.edit(**params))
             else:
                 response = self._request(lambda client: client.images.generate(**params))
@@ -118,10 +126,13 @@ class OpenAIImageProvider(OpenAIMedia):
 
 
 class OpenAITTSProvider(OpenAIMedia):
+    @limited('openai')
     def generate(self, text: str, voice_id: str, config: ProviderConfig) -> AudioAsset:
         params = dict(model=config.model, input=text, voice=voice_id, response_format="wav")
         if config.model.startswith("gpt-"):
             params["instructions"] = "Read clearly and naturally. Keep a consistent voice. Speak only the supplied text."
+            if options := config.options.get("project_style_rules"):
+                params["instructions"] += " Audio direction only; do not speak these rules: " + options
             if config.options.get("voice_profile"):
                 import json
                 params["instructions"] += " Fixed voice profile: " + json.dumps(config.options["voice_profile"], ensure_ascii=False)
@@ -131,6 +142,9 @@ class OpenAITTSProvider(OpenAIMedia):
                 params["instructions"] += " Act this line naturally using this direction; do not speak the metadata: " + json.dumps(direction, ensure_ascii=False)
             if config.options.get("generic_prompt"):
                 params["instructions"] += " Overall genre and tone: " + config.options["generic_prompt"]
+            if config.options.get("audio_tags"):
+                from .audio_tags import speech_tags
+                params["instructions"] += " Vocal performance cues (not spoken): " + ", ".join(speech_tags(config.options))
             if config.options.get("style_prompt"):
                 params["instructions"] += " Delivery style: " + config.options["style_prompt"]
             if config.options.get("modification"):
@@ -150,6 +164,7 @@ class OpenAITTSProvider(OpenAIMedia):
 
 
 class OpenAIAlignmentProvider(OpenAIMedia):
+    @limited('openai')
     def align(self, audio: Path, text: str, language: str, config: ProviderConfig) -> Alignment:
         duration = wav_duration(audio)
         with audio.open("rb") as stream:
@@ -169,7 +184,7 @@ class OpenAIAlignmentProvider(OpenAIMedia):
 class DemoImageProvider(ThreadLocalUsage):
 
     def generate(self, prompt, references, config):
-        image = Image.new("RGB", (768, 432), "#e2e8f0")
+        image = Image.new("RGB", (768, 384 if config.options.get("panorama") else 432), "#e2e8f0")
         draw = ImageDraw.Draw(image)
         draw.text((32, 40), "OFFLINE DEMO - placeholder image", fill="#0f172a")
         draw.text((32, 80), input_hash(prompt)[:32], fill="#334155")

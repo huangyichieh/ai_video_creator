@@ -16,7 +16,7 @@ def open_assets(manager, monkeypatch):
     monkeypatch.setenv("STORY_DATA_ROOT", str(manager.root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
     monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     app.button(key="nav-assets").click().run()
     return app
 

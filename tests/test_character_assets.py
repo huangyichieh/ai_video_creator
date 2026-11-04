@@ -36,7 +36,7 @@ def cast(tmp_path, monkeypatch):
 
 
 def app_for_cast():
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=30).run()
     app.button(key="nav-assets").click().run()
     assert not app.exception
     return app
@@ -53,24 +53,24 @@ def test_cards_individual_generate_then_batch_generates_entire_cast(cast):
     manager, project, _ = cast
     app = app_for_cast()
     for cid in ("keeper", "sailor"):
-        assert any(f"**{cid} · pending · revision 0**" == m.value for m in app.markdown)
-        assert app.button(key=f"retry-asset-character_references:{cid}").label == "Generate character"
-    style_key = f"asset-style-{project.project_id}-character_references:keeper"
-    app.text_input(key=style_key).set_value("Watercolor, warm palette").run()
+        assert any(f"{cid} · pending · revision 0" == item.value for item in app.caption)
+        assert app.button(key=f"retry-asset-character_references:{cid}").label == "Generate"
+    style_key = f"visual-generation-{project.project_id}-character_references-keeper-prompt"
+    app.text_area(key=style_key).set_value("Watercolor, warm palette").run()
     app.button(key="retry-asset-character_references:sailor").click().run()
     finish(app)
     engine = AssetPipeline(manager, project.project_id)
     first = engine.inspect()
     assert set(first.records) == {"character_references:sailor"}
     image = first.records["character_references:sailor"].asset.asset_id
-    assert app.button(key="retry-asset-character_references:sailor").label == "Regenerate asset"
+    assert app.button(key="retry-asset-character_references:sailor").label == "Generate"
     app.button(key="generate-next-asset-stage").click().run()
     finish(app)
     state = engine.inspect()
     assert state.next_stage == "character_review"
     assert set(state.records) == {"character_references:keeper", "character_references:sailor"}
     assert all(r.status == "succeeded" for r in state.records.values())
-    assert state.records["character_references:keeper"].asset.generation_params["stylePrompt"] == "Watercolor, warm palette"
+    assert state.records["character_references:keeper"].asset.generation_params["stylePrompt"] == ""
     assert "Watercolor, warm palette" in state.records["character_references:keeper"].asset.generation_params["prompt"]
     assert state.records["character_references:sailor"].asset.asset_id == image
     assert len(CostTracker(manager, project.project_id).records()) == 4  # world, cast, two images
@@ -88,21 +88,22 @@ def test_character_draft_typo_apply_revert_save_and_navigation(cast, monkeypatch
             return TypoReport(summary="One typo", suggestions=[{
                 "source": "characters", "field": "appearance", "original": "Shrot", "replacement": "Short", "explanation": "Spelling"}])
 
-    def proofread(pipeline, drafts, stage):
+    def proofread(pipeline, drafts, stage, **kwargs):
         captured.append((drafts, stage))
-        return check_typos(pipeline, drafts, stage, provider=Proofreader())
+        return check_typos(pipeline, drafts, stage, provider=Proofreader(), **kwargs)
 
     monkeypatch.setattr("story_channel.character_assets_ui.check_typos", proofread)
     app = app_for_cast()
     prefix = f"asset-character-{project.project_id}-sailor"
-    draft = json.loads(app.text_area(key=prefix + "-draft").value)
+    app.toggle(key=prefix + "-edit-mode").set_value(True).run()
+    draft = json.loads(app.session_state[prefix + "-draft"])
     draft["appearance"] = "Shrot hair and green eyes"
     text = json.dumps(draft, ensure_ascii=False, indent=2)
-    app.text_area(key=prefix + "-draft").set_value(text).run()
+    app.text_area(key=prefix + "-field-appearance").set_value(draft["appearance"]).run()
     assert app.button(key="retry-asset-character_references:sailor").disabled
     app.button(key="nav-final").click().run()
     app.button(key="nav-assets").click().run()
-    assert app.text_area(key=prefix + "-draft").value == text
+    assert app.session_state[prefix + "-draft"] == text
     app.button(key=prefix + "-check").click().run()
     finish(app)
     assert json.loads(captured[0][0]["characters"])["characterId"] == "sailor"
@@ -110,12 +111,12 @@ def test_character_draft_typo_apply_revert_save_and_navigation(cast, monkeypatch
     assert captured[0][1] == "characters"
     assert any(r.step == "typo_check:characters" for r in CostTracker(manager, project.project_id).records())
     app.button(key=prefix + "-apply-0").click().run()
-    assert json.loads(app.text_area(key=prefix + "-draft").value)["appearance"] == "Short hair and green eyes"
+    assert app.text_area(key=prefix + "-field-appearance").value == "Short hair and green eyes"
     assert flow.artifact("characters") == original
     app.button(key=prefix + "-revert").click().run()
-    assert json.loads(app.text_area(key=prefix + "-draft").value)["appearance"] == original.characters[1].appearance
+    assert app.text_area(key=prefix + "-field-appearance").value == original.characters[1].appearance
     assert app.button(key=prefix + "-save").disabled
-    app.text_area(key=prefix + "-draft").set_value(text).run()
+    app.text_area(key=prefix + "-field-appearance").set_value(draft["appearance"]).run()
     app.button(key=prefix + "-save").click().run()
     finish(app)
     updated = flow.artifact("characters")
@@ -166,16 +167,14 @@ def test_saved_appearance_edit_regenerates_only_changed_reference(cast):
     assert state.records["character_references:sailor"].asset.asset_id != original["character_references:sailor"]
 
 
-def test_generic_prompt_required_and_saved_for_batch_generation(cast):
+def test_generic_prompt_optional_for_character_sheets_and_saved_for_batch_generation(cast):
     manager, project, _ = cast
     engine = AssetPipeline(manager, project.project_id)
     engine.set_generic_prompt("")
-    with pytest.raises(ValueError, match="generic type prompt"):
-        engine.generate("character_references")
-    assert not engine.load().records
+    assert engine.can_generate("character_references", engine.load())
     app = app_for_cast()
-    assert app.button(key="generate-next-asset-stage").disabled
-    assert app.button(key="retry-asset-character_references:keeper").disabled
+    assert not app.button(key="generate-next-asset-stage").disabled
+    assert not app.button(key="retry-asset-character_references:keeper").disabled
     generic_key = f"asset-generic-prompt-{project.project_id}"
     app.text_area(key=generic_key).set_value("Hand-drawn fantasy, hopeful tone").run()
     assert not app.button(key="generate-next-asset-stage").disabled
@@ -264,7 +263,7 @@ def test_shared_style_image_preview_persists_and_can_be_removed(cast):
     app.button(key="remove-style-reference").click().run()
     assert not app.exception
     assert engine.load().style_reference is None
-    assert app.button(key="generate-next-asset-stage").disabled
+    assert not app.button(key="generate-next-asset-stage").disabled
 
 
 def test_three_shared_style_images_persist_and_remove_individually(cast):
@@ -314,7 +313,10 @@ def test_individual_generate_buttons_queue_reference_assets_one_at_a_time(cast, 
         assert len(calls) == 1
         app.run()
         assert not app.exception
-        assert any("Running: 1/1 · Queued: 1" in c.value for c in app.caption)
+        assert app.button(key="retry-asset-character_references:sailor").label == "Queuing…", {
+            "activity": task["asset_engine"].activity_snapshot(), "captions": [c.value for c in app.caption],
+            "errors": [e.value for e in app.error]}
+        assert task["asset_engine"].load().generation_queued == 1
         release.set()
         task["future"].result(timeout=10)
         assert two_started.is_set()

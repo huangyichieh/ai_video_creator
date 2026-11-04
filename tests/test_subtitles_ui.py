@@ -13,13 +13,14 @@ from test_assets_ui import prepare
 
 def voices_ready(tmp_path):
     tmp_path.mkdir(parents=True, exist_ok=True)
-    manager, project = prepare(tmp_path)
-    engine = AssetPipeline(manager, project.project_id)
-    engine.run()
-    engine.approve("characters")
-    engine.run()
-    engine.approve("backgrounds")
+    from test_animations_workflow import ready_assets
+    renderer, director = ready_assets(tmp_path)
+    manager = renderer.manager
+    project = manager.load(renderer.project_id)
+    engine = renderer.assets
     engine.generate("scene_images")
+    director.approve_plan()
+    director.approve_performance()
     engine.generate("voices")
     return manager, project, engine
 
@@ -65,7 +66,7 @@ def test_live_subtitle_metrics_and_scene_exports(tmp_path, monkeypatch):
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(DemoAlignmentProvider, "align", delayed)
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=30).run()
     app.button(key="nav-final").click().run()
     assert not app.exception
     assert next(m for m in app.metric if m.label == "Subtitle tracks").value == "3"
@@ -73,12 +74,12 @@ def test_live_subtitle_metrics_and_scene_exports(tmp_path, monkeypatch):
     task = None
     try:
         app.button(key="nav-animations").click().run()
-        app.button(key="generate-next-asset-stage").click().run()
+        app.button(key=f"animation-input-next-{project.project_id}").click().run()
         task = app.session_state["workspace-task"]
         app.button(key="nav-final").click().run()
         assert not app.exception
         assert next(m for m in app.metric if m.label == "Generating").value == "3"
-        assert any("Generating subtitles" in status.label for status in app.status)
+        assert any("subtitle" in status.label.lower() for status in app.status)
         release.set()
         task["future"].result(timeout=20)
         app.run()

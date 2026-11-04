@@ -20,6 +20,8 @@ def sound_payload(cue, group):
 
 
 def sound_prompt(pipeline, payload):
+    from .style_rules import audio_rules, pipeline_rules
+    rules = audio_rules(pipeline_rules(pipeline), kind="sound")
     description = payload["prompt"]
     if not description:
         raise ValueError("Enter a sound description before generating SFX")
@@ -27,7 +29,8 @@ def sound_prompt(pipeline, payload):
     # so retries don't repeatedly spend tokens translating the same cue.
     if any(char.isalpha() and not char.isascii() for char in description) and not pipeline.demo:
         from .modification import modify_content
-        key = input_hash({"source": description, "model": pipeline.config.model,
+        from .generation_preferences import openai_config
+        key = input_hash({"source": description, "model": openai_config(pipeline, "sfx_prompt", force=True).model,
                           "version": SOUND_PROMPT_VERSION})
         cache = pipeline.path / "prompts" / "sound_descriptions" / f"{key}.json"
         if cache.exists():
@@ -44,6 +47,7 @@ def sound_prompt(pipeline, payload):
     form = ("Continuous environmental ambience, steady background texture. " if payload["group"] == "ambience"
             else "Isolated Foley/sound effect, with a clear audible onset. ")
     return (description + ". " + form
+            + ("Audio style direction (not spoken): " + rules + ". " if rules else "")
             + ("Seamless repeating texture. " if payload["loop"] else "Fit the requested sound naturally within the clip. ")
             + "Sound only: no intelligible speech, spoken words, dialogue, narration or singing. "
               "Only the described sound sources; no unrelated effects or added background score.")

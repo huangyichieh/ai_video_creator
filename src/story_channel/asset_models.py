@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, Field, model_validator
 
-from .models import GeneratedAsset, Model, Nonempty, utc_now
+from .models import ApprovalRecord, GeneratedAsset, Model, Nonempty, utc_now
 
 ASSET_STAGES = ("character_references", "backgrounds", "scene_images", "voices", "subtitles", "consistency")
 
@@ -49,6 +49,7 @@ class AssetRecord(Model):
     revision: int = 0
     remote_job_id: str | None = None
     remote_job_hash: str = ""
+    remote_request_file: str = ""
     remote_status: str = ""
     error: str | None = None
     updated_at: AwareDatetime = Field(default_factory=utc_now)
@@ -82,13 +83,31 @@ class VoiceDelivery(Model):
 
 
 class Production(Model):
+    location_workflow_version: int = 0
+    location_reference_sets: dict[str, dict] = Field(default_factory=dict)
+    location_pair_prompts: dict[str, dict[str,str]] = Field(default_factory=dict)
+    location_master_approvals: dict[str, ApprovalRecord] = Field(default_factory=dict)
+    location_yaw_approvals: dict[str, ApprovalRecord] = Field(default_factory=dict)
     schema_version: Literal["1.0"] = "1.0"
     source_hash: str = ""
     provider_mode: Literal["openai", "demo"] = "openai"
     next_stage: str = "character_references"
     records: dict[str, AssetRecord] = Field(default_factory=dict)
+    character_approvals: dict[str, ApprovalRecord] = Field(default_factory=dict)
+    background_approvals: dict[str, ApprovalRecord] = Field(default_factory=dict)
+    background_images: dict[str, dict[str, str]] = Field(default_factory=dict)
+    background_modes: dict[str, str] = Field(default_factory=dict)
+    generation_inputs: dict[str, dict] = Field(default_factory=dict)
+    project_style_rules: str = ""
+    project_style_image: dict[str, str] | None = None
+    background_panorama_reviews: dict[str, dict] = Field(default_factory=dict)
+    character_images: dict[str, dict[str, str]] = Field(default_factory=dict)
     voice_map: dict[str, str] = Field(default_factory=dict)
     style_prompts: dict[str, str] = Field(default_factory=dict)
+    # Older fields remain readable as historical provenance. Current World /
+    # Episode projects use individual references after the one-time migration.
+    per_asset_references: bool = False
+    character_prompt_version: int = 0
     generic_prompt: str = ""
     style_reference: str | None = None
     style_reference_hash: str = ""

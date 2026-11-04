@@ -6,9 +6,11 @@ from .files import atomic_write
 from .models import UsageRecord
 from .projects import ProjectManager
 
+USAGE_ADAPTER = TypeAdapter(list[UsageRecord])
+
 
 class CostTracker:
-    """Single-writer ledger; totals can be rebuilt if manifest sync is interrupted."""
+    """Serialized ledger; totals can be rebuilt if manifest sync is interrupted."""
 
     def __init__(self, manager: ProjectManager, project_id: str):
         self.manager = manager
@@ -19,9 +21,15 @@ class CostTracker:
     def records(self) -> list[UsageRecord]:
         if not self.path.exists():
             return []
-        return TypeAdapter(list[UsageRecord]).validate_json(self.path.read_text(encoding="utf-8"))
+        from .file_cache import read_validated
+        return read_validated(self.path, USAGE_ADAPTER)
 
     def record(self, usage: UsageRecord) -> None:
+        from .ledger_lock import ledger_lock
+        with ledger_lock(self.path.parent):
+            self._record(usage)
+
+    def _record(self, usage: UsageRecord) -> None:
         usage = UsageRecord.model_validate(usage.model_dump())
         usage.story_project_id = usage.story_project_id or self.project_id
         usage.source_project_id = usage.source_project_id or self.project_id
@@ -38,8 +46,10 @@ class CostTracker:
         self.sync()
 
     def sync(self) -> None:
-        records = self.records()
-        manifest = self.manager.load(self.project_id)
-        manifest.estimated_cost = sum((r.estimated_cost for r in records), Decimal("0"))
-        manifest.actual_cost = sum((r.cost for r in records), Decimal("0"))
-        self.manager.save(manifest)
+        from .ledger_lock import ledger_lock
+        with ledger_lock(self.path.parent):
+            records = self.records()
+            manifest = self.manager.load(self.project_id)
+            manifest.estimated_cost = sum((r.estimated_cost for r in records), Decimal("0"))
+            manifest.actual_cost = sum((r.cost for r in records), Decimal("0"))
+            self.manager.save(manifest)

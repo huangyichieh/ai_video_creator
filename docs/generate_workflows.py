@@ -68,88 +68,75 @@ def diagram(name, title, nodes, note, *, connect=True):
 
 
 def overview():
-    """Analytics receives data from every workspace, not just the final output."""
-    canvas = Image.new("RGB", (1280, 370), "white")
-    draw = ImageDraw.Draw(canvas)
-    svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="370" viewBox="0 0 1280 370" role="img">',
-           '<title>Story Studio workspace map</title><desc>Story and Settings to Assets to Animations to Final. Every page reports to Analytics.</desc>',
-           '<rect width="100%" height="100%" fill="white"/>']
-    def label(x, y, text, size=23, bold=False):
-        draw.text((x, y), text, font=font(size, bold), fill="#0f172a", anchor="mt")
-        svg.append(f'<text x="{x}" y="{y+size}" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="{size}" font-weight="{600 if bold else 400}">{escape(text)}</text>')
-    label(640, 18, "Story Studio | Workspace map", 30, True)
-    nodes = [("Story & Settings", "Plan and approve the story", "story-settings"),
-             ("Assets", "Reusable identity and voices", "assets"),
-             ("Animations", "Generate / approve scenes", "animations"),
-             ("Final", "Assemble / approve video", "final")]
-    for i, (title, body, page) in enumerate(nodes):
-        x = 28+i*315
-        draw.rounded_rectangle((x, 100, x+279, 207), radius=12, fill="#eff6ff", outline="#60a5fa", width=2)
-        svg.append(f'<a href="../README.md#{page}"><rect x="{x}" y="100" width="279" height="107" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>')
-        label(x+139, 118, title, 23, True)
-        label(x+139, 163, body, 18)
-        svg.append('</a>')
-        if i < 3:
-            draw.line((x+280, 152, x+308, 152), fill="#64748b", width=3)
-            draw.polygon([(x+308, 152), (x+299, 147), (x+299, 157)], fill="#64748b")
-            svg.append(f'<path d="M{x+280} 152h28l-9 -5m9 5l-9 5" fill="none" stroke="#64748b" stroke-width="3"/>')
-        draw.line((x+139, 208, x+139, 266), fill="#34a887", width=2)
-        draw.polygon([(x+139, 266), (x+134, 257), (x+144, 257)], fill="#34a887")
-        svg.append(f'<path d="M{x+139} 208v58l-5 -9m5 9l5 -9" fill="none" stroke="#34a887" stroke-width="2"/>')
-    draw.rounded_rectangle((28, 267, 1252, 342), radius=12, fill="#ecfdf5", outline="#34d399", width=2)
-    svg.append('<a href="../README.md#analytics"><rect x="28" y="267" width="1224" height="75" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>')
-    label(640, 275, "Analytics", 24, True)
-    label(640, 310, "Generation usage, request attribution and separate billing reports across every workspace", 18)
-    svg.extend(['</a>', '</svg>'])
-    canvas.save(ROOT / 'workspace-flow.png')
-    (ROOT / 'workspace-flow.svg').write_text('\n'.join(svg), encoding='utf-8')
+    diagram("workspace-flow", "Story Studio | Workspace map", [
+        ("World", "Review and approve shared canon", "gate", "world"),
+        ("Assets", "Characters, backgrounds, voices, props", "page", "assets"),
+        ("Story/Episode", "Outline, Story, Script, Storyboard, Prompts", "page", "story-episode"),
+        ("Animations", "Approve individual animated scenes", "page", "animations"),
+        ("Final", "Assemble and approve the finished video", "page", "final"),
+        ("Analytics", "Usage and billing across all workspaces", "page", "analytics"),
+    ], "World and Assets are shared. Episodes keep independent approvals and production outputs.")
 
 
 def main():
     definitions = [
-        ("workflow", "Story & Settings | Creative workflow", [
-            ("Project + outline", "Title, language, target length", "step", "story-settings"),
-            ("World + Characters", "Establish canon and cast", "step", "story-settings"),
-            ("Story", "Generate original story content", "step", "story-settings"),
-            ("AI Review (Story)", "Edit, apply/revert, save and approve", "gate", "story-settings"),
-            ("Script + Dialogue", "Review dialogue and draft intent", "step", "story-settings"),
-            ("Storyboard", "Plan scenes, shots and camera", "step", "story-settings"),
-            ("AI Review (Storyboard)", "Edit, apply/revert or keep original", "gate", "story-settings"),
-            ("Prompts", "Generate visual instructions", "step", "story-settings"),
-            ("Go to Assets", "Character references can start early", "page", "assets"),
-        ], "Story & Settings owns creative content. Characters unlock early references; other work needs approved planning."),
-        ("assets-workflow", "Assets | Reusable references and voices", [
-            ("From Story & Settings", "Characters ready; later gates apply", "page", "story-settings"),
-            ("Identity + shared style", "Locations, costumes, props; 3 images", "step", "assets"),
-            ("Character references", "Generate and approve appearance", "gate", "assets"),
-            ("Background references", "After Prompts: generate and approve", "gate", "assets"),
-            ("Animations: build plan", "Prepare direction, then return here", "page", "animations"),
-            ("Assets: auditions", "Approve voices + library; continue", "gate", "assets"),
-        ], "After auditions, continue on Animations for scene production. Voice auditions require the storyboard and plan."),
-        ("animation-workflow", "Animations | Individual scene and shot production", [
-            ("Approved inputs", "Storyboard + Assets reference packs", "page", "assets"),
-            ("Plan + acting intent", "Build direction; audition on Assets", "step", "animations"),
-            ("Approve direction", "Current references, voices, acting", "gate", "animations"),
-            ("Scene images + voices", "Generate dialogue and alignment", "step", "animations"),
-            ("Approve scene inputs", "Review consistency and asset batch", "gate", "animations"),
-            ("Generate animated shots", "Kling; Act-Two only when selected", "step", "animations"),
-            ("Sound + VFX layers", "SFX, ambience, independent effects", "step", "animations"),
-            ("Approve scenes", "Continuity QA + each composed scene", "gate", "animations"),
-            ("Go to Final", "Hand off current approved scenes", "page", "final"),
-        ], "Retries retain successful work. Chaining reuses cut frames. Scene generation does not assemble the final video."),
+        ("world-workflow", "World | Shared immutable canon", [
+            ("World settings fields", "Seven essential points in one JSON", "step", "world"),
+            ("AI Review", "Required worldview and typo review", "gate", "world"),
+            ("Apply / Revert", "Edit suggestion manually if needed", "step", "world"),
+            ("Approve World", "Freeze base canon; unlock production", "gate", "world"),
+            ("Draft settings list", "Add settings; Edit / AI Review / Approve", "step", "world"),
+            ("AI Review additions", "Check base and approved additions", "gate", "world"),
+            ("Apply / Revert", "Edit suggestion manually if needed", "step", "world"),
+            ("Approve addition", "Verify selected text; append only", "gate", "world"),
+        ], "Existing episodes retain canon snapshots until the user explicitly includes new approved additions."),
+        ("workflow", "Story/Episode | Content and approval gates", [
+            ("Episode outline", "Title, outline, target HH:MM:SS", "step", "story-episode"),
+            ("Review and approve", "AI review or prompt-guided suggestions", "gate", "story-episode"),
+            ("Story", "Hook through Ending; AI Review (Story)", "gate", "story-episode"),
+            ("Script", "Generate, review, edit and approve", "gate", "story-episode"),
+            ("Storyboard", "AI Review (Storyboard); approve", "gate", "story-episode"),
+            ("Prompts", "Generate, review and approve", "gate", "story-episode"),
+            ("Go to Animations", "All five episode gates approved", "page", "animations"),
+        ], "Outline changes reopen episode content; shared World and reusable assets are retained."),
+        ("assets-workflow", "Assets | Reusable world-owned library", [
+            ("Approved World", "Canon guides every reusable asset", "page", "world"),
+            ("Style rules", "Shared rules and optional style image", "step", "assets"),
+            ("Character References", "Text or image -> model sheet; Voice; Costumes", "step", "assets"),
+            ("Location layout", "Floor plan + objects -> camera view regions", "step", "assets"),
+            ("North / south masters", "Visible camera regions; 2560x1440; two outputs", "step", "assets"),
+            ("Approve master pair", "Review layout, objects and shared style", "gate", "assets"),
+            ("Optional local details", "Stable area IDs; linked objects; upload or AI", "step", "assets"),
+            ("Location resolver", "Nearest master + relevant details; 1-3 refs", "step", "animations"),
+            ("SFX and Props (optional)", "Libraries and mode visuals; no required gate", "step", "assets"),
+            ("Style check (optional)", "New/updated targets; unchanged art is context", "step", "assets"),
+            ("Assets prerequisite done", "At least 1 character + 1 background exist", "gate", "assets"),
+            ("Reuse in episodes", "Copy approved media; independent state", "page", "story-episode"),
+        ], "No complete-assets stage. Unused drafts never block an episode; actual scene references are checked when used."),
+        ("animation-workflow", "Animations | Ordered scene production", [
+            ("Scene images", "Resolve 1-3 angle/area references per shot", "step", "animations"),
+            ("Direction / performance", "Review and approve every scene", "gate", "animations"),
+            ("Animated scenes", "Split orbits; chain last frames; approve", "gate", "animations"),
+            ("Voices and input", "Dialogue, alignment and input QA", "gate", "animations"),
+            ("Video effects", "Configure and generate VFX layers", "step", "animations"),
+            ("Sound effects", "Generate SFX / ambience and preview", "step", "animations"),
+            ("Scene review / continuity", "Compose, review and approve all scenes", "gate", "animations"),
+            ("Go to Final", "Hand off approved scenes only", "page", "final"),
+        ], "Approved visuals are fitted to recorded voices without another video API request. Review timing before Final."),
         ("render-workflow", "Final | Assembly and final review", [
             ("From Animations", "Every current scene approved", "page", "animations"),
-            ("Timeline + subtitles", "Review order, timing and captions", "step", "final"),
-            ("Mix + output settings", "Changes? Recompose on Animations", "step", "final"),
-            ("Assemble final video", "Use approved media; no model calls", "step", "final"),
-            ("Preview + download", "MP4, SRT/VTT, timeline exports", "step", "final"),
+            ("Timeline / subtitles", "Review order, timing and captions", "step", "final"),
+            ("Mix / output settings", "Recompose affected scenes if changed", "step", "final"),
+            ("Assemble final video", "Approved media; progress shown", "step", "final"),
+            ("Preview / download", "MP4, SRT/VTT and timeline exports", "step", "final"),
             ("Approve final video", "Local approval; does not publish", "gate", "final"),
-        ], "Final assembles approved scenes. Changed composition settings send affected scenes back to Animations."),
+        ], "Final keeps the existing composition and approval workflow; no generation API calls during assembly."),
         ("analytics-workflow", "Analytics | Usage, attribution and billing", [
-            ("Usage + request IDs", "Attempts attributed to each story", "step", "analytics"),
-            ("Provider statistics", "Calls, failures, configured estimates", "step", "analytics"),
-            ("OpenAI billed reports", "Separate admin API / snapshots", "step", "analytics"),
-        ], "Analytics covers every workspace. Runway/ElevenLabs invoices and live audience/revenue feeds are not connected."),
+            ("Usage / request IDs", "Every attempt attributed to its episode", "step", "analytics"),
+            ("Provider statistics", "Costs, failures and retries", "step", "analytics"),
+            ("World project cost", "Shared assets plus episode costs", "step", "analytics"),
+            ("OpenAI billed reports", "Account reports remain separate", "step", "analytics"),
+        ], "Audience and revenue metrics require a connected publishing analytics source."),
     ]
     for args in definitions:
         diagram(*args, connect=args[0] != "analytics-workflow")

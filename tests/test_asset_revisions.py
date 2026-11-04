@@ -27,7 +27,7 @@ def test_apply_old_reference_preserves_provenance_requires_approval_and_keeps_re
     assert len(CostTracker(assets.manager, assets.project_id).records()) == costs
     rows = assets_status_rows(assets, state)
     row = next(r for r in rows if r["Stage"] == "character_references")
-    assert row["Revision"] == 1 and row["Status"] == "succeeded" and row["Approval"] == "Not approved"
+    assert row["Revision"] == 1 and row["Status"] == "succeeded" and row["Approval"] == "Pending"
     assets.approve("characters")
     assert "characters" in assets.manager.load(assets.project_id).asset_approvals
     assets.generate("character_references", subject="keeper", force=True)
@@ -79,15 +79,19 @@ def test_revision_browser_preview_does_not_apply_and_apply_refreshes_table(tmp_p
     engine.approve("characters")
     app = open_assets(manager, monkeypatch)
     prefix = f"reference-revisions-{project.project_id}-character_references-{first.subject}"
+    app.session_state[f"character-library-card-{project.project_id}-{first.subject}"] = True
+    app.session_state[prefix + "-panel"] = True
+    app.run()
     app.selectbox(key=prefix + "-choice").select(first.asset.asset_id).run()
     assert not app.exception
     assert engine.load().records[f"character_references:{first.subject}"].revision == 2
     assert "characters" in manager.load(project.project_id).asset_approvals
     app.button(key=prefix + "-apply").click().run()
     finish_background(app)
+    app.run()  # Poll the legacy fixture's table after the card-local commit.
     assert not app.exception
     assert app.button(key=prefix + "-apply").disabled
     rows = next(frame.value for frame in app.dataframe if "Regenerate" in frame.value.columns)
     row = rows[(rows.Stage == "character_references") & (rows.Subject == first.subject)].iloc[0]
-    assert row.Revision == 1 and row.Status == "succeeded" and row.Approval == "Not approved"
+    assert row.Revision == 1 and row.Status == "succeeded" and row.Approval == "Pending"
     assert engine.load().next_stage == "character_review"

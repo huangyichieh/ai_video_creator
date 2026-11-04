@@ -1,4 +1,5 @@
 """Editable original/proposal comparisons with an explicit decision per field."""
+from .error_report_ui import render_error, error_project, report_widget_key
 import streamlit as st
 
 from .files import input_hash
@@ -74,7 +75,7 @@ def unreviewed_storyboard_actions(pipeline, *, ready):
 def review_diff_editor(pipeline, kind, *, ready=True):
     error = st.session_state.get(f"ai-review-error-{pipeline.project_id}-{kind}")
     if error:
-        st.error(error)
+        render_error(error, project_path=error_project(locals()), key=report_widget_key('review_changes_ui:77', locals()))
     try:
         context, report = review_inputs(pipeline, kind)
         session = current_session(pipeline, kind)
@@ -95,8 +96,9 @@ def review_diff_editor(pipeline, kind, *, ready=True):
             return False
     if session is None:
         st.info("Prepare exact suggested changes from the saved findings. Saved content stays unchanged until you save and approve.")
-        if st.button("Prepare suggested changes", key=f"ai-review-prepare-{kind}", disabled=busy()):
-            launch_review(pipeline, kind, lambda: prepare_review(pipeline, kind, force=True))
+        from .generation_ui import review_button
+        review_button("Prepare suggested changes",key=f"ai-review-prepare-{kind}",disabled=busy(),
+            on_click=lambda:launch_review(pipeline,kind,lambda:prepare_review(pipeline,kind,force=True)))
         save, unchanged = st.columns(2)
         save.button("Save and approve", key=f"ai-review-save-{kind}", type="primary", disabled=True)
         with unchanged:
@@ -162,5 +164,8 @@ def review_diff_editor(pipeline, kind, *, ready=True):
         unchanged_approval_button(pipeline, context, report, kind=kind)
     message = st.session_state.pop("workspace-task-message", None)
     if message:
-        getattr(st, message[0])(message[1])
+        if message[0] == "error":
+            render_error(message[1], project_path=pipeline.path, key="review-error-report")
+        else:
+            getattr(st, message[0])(message[1])
     return False

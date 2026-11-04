@@ -35,7 +35,7 @@ def redundant_json_sources(files):
     return redundant
 
 
-def json_markdown(data, title):
+def json_markdown(data, title, *, item_headings=True):
     def label(value):
         return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", str(value)).replace("_", " ").capitalize()
 
@@ -54,7 +54,8 @@ def json_markdown(data, title):
             return "\n\n".join(parts) or "None"
         if isinstance(value, list):
             return "\n\n".join(
-                section(f"Item {index}", level) + "\n\n" + render(item, level + 1)
+                (section(f"Item {index}", level) + "\n\n" + render(item, level + 1)
+                 if item_headings else render(item, level))
                 if isinstance(item, (dict, list)) else "- " + render(item, level + 1).replace("\n", "\n  ")
                 for index, item in enumerate(value, 1)) or "None"
         if value is None:
@@ -68,12 +69,14 @@ def json_markdown(data, title):
 
 def readable_export(source):
     data = json.loads(source.read_text(encoding="utf-8-sig"))
+    from .location_labels import location_labels,display_locations
+    labels = location_labels(source.parent)
     aliases = {"characters.json": "character_bible.md", "scenes.json": "storyboard.md"}
     destination = source.with_name(aliases.get(source.name, source.with_suffix(".md").name))
     if source.name == "scenes.json":
         from .creative import Storyboard
         from .markdown_exports import storyboard_markdown
-        text = storyboard_markdown(Storyboard.model_validate(data))
+        text = storyboard_markdown(Storyboard.model_validate(data),labels)
     elif source.name == "dialogue_review.json":
         from .dialogue_review import SavedDialogueReview
         from .markdown_exports import dialogue_review_markdown
@@ -81,7 +84,7 @@ def readable_export(source):
         text = dialogue_review_markdown(saved.report, saved.provider, saved.model)
     else:
         title = "AI Review (Story)" if source.name == "review_report.json" else destination.stem.replace("_", " ").title()
-        text = json_markdown(data, title)
+        text = json_markdown(display_locations(data,labels), title, item_headings=source.name != "script.json")
     if not destination.exists() or destination.read_text(encoding="utf-8") != text:
         atomic_write(destination, text)
     return destination

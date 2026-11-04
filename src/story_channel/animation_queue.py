@@ -12,7 +12,8 @@ class AnimationQueue:
         self.run_id = run_id
 
     def load(self):
-        return json.loads(self.path.read_text(encoding="utf-8")) if self.path.exists() else None
+        from .file_cache import read_json
+        return read_json(self.path) if self.path.exists() else None
 
     def save(self, data):
         current = self.load()
@@ -61,6 +62,18 @@ class AnimationQueue:
                 for sid, record in render.scenes.items():
                     if action.stage == "effects" or record.status != "succeeded" or not self.engine._scene_intact(record):
                         add(stage, sid, "video", sid, record)
+            elif stage == "visual_scenes":
+                from .scene_production import SceneProduction
+                service = SceneProduction(self.engine.manager, self.engine.project_id)
+                from types import SimpleNamespace
+                for scene in self.engine.assets.creative.artifact("storyboard").scenes:
+                    if not service.visual_current(scene.scene_id, render.options):
+                        previous = service.visuals().get(scene.scene_id, {})
+                        record = SimpleNamespace(revision=previous.get("revision", 0), attempts=previous.get("attempts", 0), file_hash=previous.get("fileHash", ""))
+                        from .animation_formats import delivery_formats,FORMAT_LABELS
+                        for name in delivery_formats(render.options):
+                            add(stage, scene.scene_id+" · "+FORMAT_LABELS[name], "visual", scene.scene_id, record)
+                            data["items"][-1]["delivery_format"] = name
             elif action.runnable:
                 add(stage, action.title if stage == action.stage else "Scene-input QA", "stage", stage)
         self.save(data)
@@ -80,6 +93,15 @@ class AnimationQueue:
             record = (production.records.get(item["key"]) if item["kind"] == "asset" else
                       render.scenes.get(item["key"]) if item["kind"] == "video" else
                       effects.records.get(item["key"]) if item["kind"] == "effect" else None)
+            if item["kind"] == "visual":
+                from .scene_production import SceneProduction
+                from types import SimpleNamespace
+                value = SceneProduction(self.engine.manager, self.engine.project_id).visuals().get(item["key"], {})
+                version = value.get("formats",{}).get(item.get("delivery_format"))
+                if version:
+                    value = {**value,"status":version["status"],"fileHash":version.get("fileHash",""),"error":version.get("error","")}
+                record = SimpleNamespace(status=value.get("status", "pending"), revision=value.get("revision", 0),
+                    attempts=value.get("attempts", 0), file_hash=value.get("fileHash", ""), error=value.get("error", ""))
             status, error = item["status"], item["error"]
             if status not in ("Completed", "Reused", "Stopped", "Not run", "Failed"):
                 if record and (record.revision > item["revision"] or record.file_hash != item["file_hash"]) and record.status == "succeeded":

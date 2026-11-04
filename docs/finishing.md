@@ -1,86 +1,52 @@
-# Lip-sync and generated effects
+# Scene effects and composition
 
-These features are available in **Animations → Video, Lip-sync & SFX / VFX → Lip-sync, generated SFX and VFX layers** after the scene input batch is approved. They are off by default and make paid requests only when explicitly enabled and generated.
+Effects belong to [Animations](../README.md#animations). The current tabs are **Video effects**, **Sound effects**, and **Scene review & continuity**. Generate and approve animated scenes, then complete **Voices & input** before configuring timed effects. Final assembles approved composed scenes.
 
-## Set up provider keys
+## Video effects
 
-Fill in the new fields in the local `.env`, then restart the app:
+Add layers on **Video effects**. Local rain, snow, smoke, sparks, fire, lightning, energy and HUD layers are procedural transparent animations. Their kind, intensity and seed determine the result. OpenAI VFX layers use a prompt to generate an isolated effect on green; FFmpeg applies chroma key, timing and opacity during composition. Preview layers before approving a finished scene.
 
-```dotenv
-ELEVENLABS_API_KEY=your_elevenlabs_key
-```
+OpenAI layers use `OPENAI_API_KEY` and the existing video adapter. Changing layer timing/opacity reuses generated media; changing generation inputs requires a new layer. Multiple layers remain separate from the approved base visual. Use the service/model-labeled Modify button for supported existing AI layers.
 
-SFX uses [ElevenLabs sound generation](https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert). OpenAI VFX uses the existing `OPENAI_API_KEY` and video adapter. Keys are read from the environment, not stored in project JSON or request logs. Downloads do not receive provider authentication headers.
+Sync credentials and controls have been removed. Its adapter and old records remain readable for historical projects. If an old plan still enables Sync, save Video effects settings to disable it. Sync is not required by the current pipeline. Talking character samples combine speech and visual motion; they do not certify exact lip synchronization.
 
-Optional USD estimates use `STORY_LIP_SYNC_COST_PER_SECOND`, `STORY_SFX_COST_PER_SECOND` and the existing `STORY_VIDEO_COST_PER_SECOND`. Set each to the applicable numeric rate for your account/model. Missing rates appear as unknown. These estimates do not fetch Sync/ElevenLabs invoices, and their charges do not belong to the OpenAI billed-cost panel. The ElevenLabs `character-cost` response is retained separately as billing units, not incorrectly interpreted as USD.
+## Sound effects
 
-## Sync status
+Use **Sound effects** to select local placeholders or ElevenLabs generated SFX/ambience. Save the provider, edit cue descriptions/timing, and select cues to generate or regenerate. Production uses `ELEVENLABS_API_KEY`; save it through the key dialog or local `.env`.
 
-Sync credentials and UI controls are removed for now. Legacy implementation and history remain for compatibility; no Sync setup is required. For an older enabled plan, save finishing settings in the UI to turn lip-sync off.
+Describe the source, action and texture, for example "short metal latch click, dry close-up, no voices." Avoid dialogue or instructions intended to be spoken. Non-English descriptions are translated before generation and translation usage is recorded. Preview every result: prompt constraints cannot guarantee sound matching or the absence of speech.
 
-## Generate SFX and ambience
+A licensed cue's existing `file` is retained. Set `file: null` to generate one. Record the actual license/source for uploaded audio. Use looping ambience for continuous backgrounds and sufficient duration for discrete actions. Licensed audio on the parent Assets page is copied with the episode's shared asset snapshot.
 
-Choose **ElevenLabs generated SFX / ambience** and save finishing settings. Existing sound cues come from Storyboard and performance direction. Under **Music and sound effects**, the JSON supports a `prompt` on every cue; if empty, generation uses its name.
+## Compose and approve
 
-```json
-{
-  "name": "footsteps",
-  "prompt": "Slow heavy footsteps on wet concrete in an empty tunnel",
-  "at": 1.0,
-  "duration": 2.0,
-  "loop": false,
-  "file": null,
-  "source": "Procedurally synthesized locally; no third-party recording"
-}
-```
+On **Scene review & continuity**, use **Compose scenes (voices & effects)**. Composition fits approved silent visuals to voice timing and adds subtitles, sound and enabled VFX without another base-video generation request. Review timing, delivery, effects and continuity. Approve each current scene or all scenes, then go to **Final** for **Assemble final video**.
 
-`file: null` selects generation; an existing licensed `file` is retained and is not overwritten. The source text above is the legacy placeholder default; generated-media provenance is stored in the separate finishing asset record with provider, model, prompt, duration, request IDs and cost information. A custom uploaded file must continue to record its actual source/license.
+The waiting table shows queued/running tasks for pipeline actions. Stop finishes running work and retains completed media. Retry reuses intact cached results and acknowledged remote jobs; Regenerate creates a revision. Finishing tasks run one at a time. Provider requests share server limits of OpenAI 2, Runway 1 and ElevenLabs 2. Independent sample/design jobs may overlap asset generation; dependent production stages and character/background image batches remain sequential.
 
-ElevenLabs requests use 0.5–30 seconds. Short cues request the minimum and are trimmed in the mix. Longer ambience uses a looping generated sample of at most 30 seconds; a non-looping generated cue longer than 30 seconds is rejected. Timing stays relative to the scene's approved voice duration. Generated sounds remain independent inputs to the mix, and the original sound plan remains editable.
+Every attempt records available usage and request/job IDs against the project or episode. Rough USD estimates use recorded cost, configured rates, then available fallback rates. Unknown usage is not presented as an invoice. Provider account totals remain separate from project estimates.
 
-## Generate and composite VFX
-
-Use **Add an effect layer** to choose a scene, type, start, duration and opacity, then add it to the draft and save. Layers must fit within the recorded scene duration. More than one layer can be composed over a scene in plan order.
-
-| Type | Generation and composition |
-|---|---|
-| Rain, snow, smoke, sparks, fire, lightning, energy, HUD | Local procedural RGBA animation, saved as an alpha-capable MOV. Uses kind/intensity/seed, not an AI interpretation of text. No API charge. |
-| OpenAI | An isolated effect requested on a green background, saved separately from the base scene. The text prompt describes the effect. FFmpeg chroma-keys green and applies the chosen opacity/timing. Uses API credits. |
-
-Generated AI video layers use a 4-, 8- or 12-second clip; longer layer windows loop the effect texture. Base animation is never overwritten by a layer. Local effect previews show the transparent effect against black; AI previews show the raw green-screen output. Review generated green-screen quality: green spill, opaque smoke or an imperfectly flat background can need prompt changes and regeneration. This is not an automatic professional VFX matte guarantee.
-
-**Modify with OpenAI** on an existing AI layer opens a prompt dialog and edits that layer's saved remote video. The base animation is preserved. The plan editor also supports prompt-guided OpenAI modification, typo suggestions with Apply, Save and adjacent Revert; unsaved edits survive workspace navigation.
-
-## Retry, stop, history and costs
-
-- Check items in the finishing table. **Generate / retry selected** reuses intact cached media and resumes saved jobs. **Regenerate selected** deliberately creates new versions.
-- Use **Generate scenes / shots** to apply current enabled finishing and recompose scenes. Changing effect opacity/timing reuses the generated layer; changing its generation inputs invalidates that layer. Sound prompt changes regenerate the affected cue. Base clips remain separately cached.
-- Finishing runs one task at a time. **Stop after running tasks** finishes the current task and preserves completed media; Resume reuses it. Ordinary asset generation retains its existing five-task maximum.
-- Sync submission uses a persisted idempotency key, and accepted remote job IDs are saved before polling. [Fresh download URLs](https://sync.so/docs/api-reference/api/generate-api/download) are resolved without another generation. Polling/resuming is not counted as a second generation charge.
-- Synchronous sound requests have no documented idempotency guarantee; a lost/failed response is recorded and requires an explicit retry rather than automatic duplicate submissions. OpenAI VFX automatically resumes acknowledged jobs; an unacknowledged submission failure also requires explicit retry.
-- Every attempt, including errors, records usage and available request/job IDs against the Story Studio project. Missing usage/prices stay unknown. Files and JSON revisions are retained, and changed finishing invalidates scene/final approval and animated continuity approval.
-
-State is stored in `finishing.json`, with `finishing_plan.json`/`.md` exports and `history/finishing*` records. Sound binaries are under `audio/finishing/`; lip-sync/VFX binaries and previews are under `videos/finishing/`. Final `timeline.json` includes finishing provenance.
+State lives in `finishing.json`, `finishing_plan.json/.md`, and `history/finishing*`. Audio is under `audio/finishing/`; generated layers are under `videos/finishing/`. Final `timeline.json` retains provenance. Changed inputs reopen affected approvals.
 
 ## CLI
 
 ```powershell
-# Inspect current settings and generated records without an API request.
-.\.venv\Scripts\story-channel finishing YOUR_PROJECT_ID show
+# Inspect saved episode finishing state.
+.\.venv\Scripts\story-channel finishing EPISODE_ID show
 
-# Validate and save an edited FinishingPlan JSON.
-.\.venv\Scripts\story-channel finishing YOUR_PROJECT_ID save --file finishing-edited.json
+# Validate and save a modified FinishingPlan JSON file.
+.\.venv\Scripts\story-channel finishing EPISODE_ID save --file finishing-edited.json
 
-# Generate/retry chosen items, preserving intact successes; repeat --item for a batch.
-.\.venv\Scripts\story-channel finishing YOUR_PROJECT_ID generate --item vfx:rain_layer
+# Retry a layer, retaining intact output; repeat --item for a batch.
+.\.venv\Scripts\story-channel finishing EPISODE_ID generate --item vfx:rain_layer
 
-# Explicitly force a new version of an item.
-.\.venv\Scripts\story-channel finishing YOUR_PROJECT_ID regenerate --item vfx:rain_layer
+# Deliberately generate a new layer revision.
+.\.venv\Scripts\story-channel finishing EPISODE_ID regenerate --item vfx:rain_layer
 
-# Compose the result using enabled lip-sync, sounds and VFX.
-.\.venv\Scripts\story-channel render YOUR_PROJECT_ID run
+# Compose scene media, review it, then explicitly approve and assemble.
+.\.venv\Scripts\story-channel render EPISODE_ID run
+.\.venv\Scripts\story-channel render EPISODE_ID approve-scenes
+.\.venv\Scripts\story-channel render EPISODE_ID assemble
 ```
 
-Finishing schema exports are included in `schemas DIRECTORY --production`. Provider tests mock the official HTTP contracts; encoding tests use real local FFmpeg. No paid provider quality evaluation is performed by the test suite.
-
-Validation: **239 regression tests passed**, plus **2 additional sound-failure checks** covering uncertain submissions, failed media validation, retained costs and prevention of automatic duplicate requests.
+CLI composition obeys the same asset/direction/visual gates; it does not grant scene approval. Finishing contracts are included in `schemas DIRECTORY --production`. Tests mock remote providers and use local FFmpeg; paid output quality still needs human review.

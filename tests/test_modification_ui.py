@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import Future
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -15,7 +16,7 @@ def workspace(tmp_path, monkeypatch):
     monkeypatch.setenv("STORY_DATA_ROOT", str(manager.root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
     monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=30).run()
     return manager, project, app
 
 
@@ -61,6 +62,27 @@ def test_outline_prompt_modification_refreshes_editor_and_cancel_keeps_content(t
     assert manager.load(project.project_id).steps["world"].status == "stale"
 
 
+def test_cancel_closes_dialog_while_background_work_keeps_running(tmp_path, monkeypatch):
+    manager, project, app = workspace(tmp_path, monkeypatch)
+    app.button(key="nav-story-settings").click().run()
+    app.button(key="modify-outline-openai").click().run()
+    future = Future()
+    app.session_state["workspace-task"] = {"future": future, "label": "Background generation", "success": None,
+                                            "stop_event": None, "progress_path": None}
+    try:
+        app.run()
+        assert not app.button(key="cancel-openai-modification").disabled
+        app.button(key="cancel-openai-modification").click().run()
+        assert not app.exception
+        assert "modify-target" not in app.session_state
+        assert not any(button.key == "cancel-openai-modification" for button in app.button)
+        assert not future.done()
+        assert manager.read_outline(project.project_id) == "Eight friends restore the beacon."
+    finally:
+        future.set_result(None)
+        app.run()
+
+
 def test_asset_and_source_modification_dialogs_show_correct_targets(tmp_path, monkeypatch):
     manager, project, app = workspace(tmp_path, monkeypatch)
     engine = AssetPipeline(manager, project.project_id)
@@ -81,7 +103,8 @@ def test_asset_and_source_modification_dialogs_show_correct_targets(tmp_path, mo
     next(w for w in app.text_area if w.label == "Modification prompt").set_value("Make the hair silver").run()
     app.button(key="apply-openai-modification").click().run()
     finish(app)
-    assert json.loads(app.text_area(key=prefix + "-draft").value)["appearance"] == "Long silver hair"
+    app.toggle(key=prefix + "-edit-mode").set_value(True).run()
+    assert app.text_area(key=prefix + "-field-appearance").value == "Long silver hair"
 
 
 def test_image_dialog_applies_prompt_to_existing_image(tmp_path, monkeypatch):

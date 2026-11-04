@@ -1,10 +1,13 @@
+from .dialog_ui import dialog
 """Per-character help and prompt creation for ElevenLabs Voice Design."""
+from .error_report_ui import render_error, error_project, report_widget_key
+from .generation_ui import generation_button
 import streamlit as st
 
 from .action_labels import text_action_label
 from .files import input_hash
 from .pipeline import Pipeline
-from .ui_tasks import busy, collect, launch
+from .ui_tasks import busy, collect, launch, generation_busy, find_task, take_task_result
 from .voice_design import generate_voice_design, load_voice_design, voice_design_context
 
 
@@ -16,6 +19,8 @@ def voice_design_heading(project_id, character_id, *, narrator=False, rerun_app=
     name = "Narrator" if narrator else character_id
     subject_key = "_narrator" if narrator else character_id
     def open_dialog():
+        from .dialog_ui import request_open
+        request_open()
         st.session_state["voice-design-target"] = {"project_id": project_id, "character_id": character_id}
         if narrator:
             st.session_state["voice-design-target"]["narrator"] = True
@@ -33,7 +38,7 @@ def voice_design_heading(project_id, character_id, *, narrator=False, rerun_app=
                   key=f"voice-design-info-{project_id}-{subject_key}", on_click=open_dialog)
 
 
-@st.dialog("Create a voice in ElevenLabs", width="large", on_dismiss=close_voice_design)
+@dialog("Create a voice in ElevenLabs", width="large", on_dismiss=close_voice_design)
 def voice_design_dialog(manager, project_id, character_id, *, narrator=False):
     st.subheader("Narrator" if narrator else character_id)
     subject = "narrator" if narrator else "character"
@@ -47,8 +52,8 @@ def voice_design_dialog(manager, project_id, character_id, *, narrator=False):
         "3. Generate, listen to the options, then name and save your preferred voice.\n"
         f"4. In **My Voices → ⋯ → Copy voice ID**, copy the ID. Close this dialog, paste it into the **{field}** field, and save.\n\n"
         "[ElevenLabs Voice Design guide](https://elevenlabs.io/docs/eleven-creative/voices/voice-design)")
-    st.caption(("Generate a narrator prompt from the project's language, outline and saved narration. " if narrator else "Generate a prompt from this character's saved details and voice profile. ")
-               + "OpenAI usage and costs are recorded, including failed requests. This action creates text; create and audition the voice in ElevenLabs.")
+    st.caption(("Generate a narrator prompt from the project's language, outline and saved narration. " if narrator else "Generate from this character's Age, Personality and Speaking style, using the project's language. ")
+               + "Generated prompts are less than 500 characters. OpenAI usage and costs are recorded, including failed requests. This action creates text; create and audition the voice in ElevenLabs.")
     voice_prompt_panel(manager, project_id, character_id, narrator=narrator)
     if st.button("Close", key="voice-design-close"):
         close_voice_design()
@@ -64,25 +69,28 @@ def voice_prompt_panel(manager, project_id, character_id, *, narrator=False):
     if narrator:
         target["narrator"] = True
     owner = ("voice-design-target", target)
-    task = st.session_state.get("workspace-task")
+    task = find_task(lambda item: item.get("dialog_owner") == owner)
     owned = bool(task and task.get("dialog_owner") == owner)
     if owned and task["future"].done():
-        collect()
-        message = st.session_state.pop("workspace-task-message", None)
-        if message and message[0] == "error":
-            st.session_state[error_key] = message[1]
+        collect(task)
         owned = False
+    result = take_task_result(project_id, [f"voice-design-generate-{project_id}-{subject_key}"])
+    if result and result[0][0] == "error":
+        st.session_state[error_key] = result[0][1]
 
     def start_generation():
         st.session_state.pop(error_key, None)
         launch(lambda: generate_voice_design(pipeline, character_id, narrator=narrator), f"Generating voice prompt for {'Narrator' if narrator else character_id}",
-               dialog_owner=owner)
+               dialog_owner=owner, queue_enabled=True, concurrent_safe=True,
+               resource=f"voice-design:{project_id}:{subject_key}", project_path=pipeline.path, service="openai")
 
-    st.button(text_action_label("Generate voice prompt", pipeline),
-              key=f"voice-design-generate-{project_id}-{subject_key}", type="primary", disabled=busy(),
+    generation_button(text_action_label("Generate voice prompt", pipeline, "voice_design"),
+              key=f"voice-design-generate-{project_id}-{subject_key}", type="primary", disabled=generation_busy(),
               on_click=start_generation)
     if st.session_state.get(error_key):
-        st.error(st.session_state[error_key])
+        render_error(st.session_state[error_key], project_path=pipeline.path,
+                     task_key="voice_design:narrator:voice" if narrator else f"voice_design:{character_id}",
+                     key=report_widget_key('voice_design_ui:86', locals()))
     if owned:
         st.code("Generating voice prompt...", language=None, wrap_lines=True)
         return
@@ -90,8 +98,9 @@ def voice_prompt_panel(manager, project_id, character_id, *, narrator=False):
         saved = load_voice_design(pipeline, character_id, narrator=narrator)
         if saved:
             if saved.source_hash != input_hash(voice_design_context(pipeline, character_id, narrator=narrator)):
-                st.warning("Source details, language or voice settings changed. Generate a new prompt for the current settings.")
-            st.caption(f"Saved prompt · {saved.provider} / {saved.model}. Use the copy icon to copy the full prompt.")
+                st.warning("Narrator source or language changed. Generate a new prompt." if narrator else
+                           "This saved prompt no longer matches the current inputs. Generate again using Age, Personality, Speaking style and project language.")
+            st.caption(f"Saved prompt · {saved.provider} / {saved.model} · {len(saved.prompt.render())} characters. Use the copy icon to copy the full prompt.")
             st.code(saved.prompt.render(), language=None, wrap_lines=True)
         else:
             st.caption("Prompt format")

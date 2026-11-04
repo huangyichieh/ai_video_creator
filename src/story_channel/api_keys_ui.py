@@ -1,3 +1,4 @@
+from .dialog_ui import dialog
 """Local credential editing without exposing saved values to browser widgets."""
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -20,7 +21,7 @@ _save_lock = Lock()
 
 
 def quota_fingerprint(key, current):
-    return sha256(("reported-spending-v1\0" + key + current).encode()).hexdigest()
+    return sha256(("reported-spending-v2\0" + key + current).encode()).hexdigest()
 
 
 def checked_quota(key, current):
@@ -73,6 +74,10 @@ def quota_status(key, current):
         if quota.unit == "USD":
             usage_metric(key, "OpenAI reported spending (USD)", f"{quota.used:,.2f}", spent=True)
             st.caption("Month to date (UTC calendar month). Reported spending may lag.")
+            if quota.last_month_used is not None:
+                st.caption(f"Last month ({quota.last_month_label}): :red[USD {quota.last_month_used:,.2f}]")
+            else:
+                st.caption("Last month spending: unavailable")
         elif quota.unit == "credits":
             usage_metric(key, "Remaining Runway credits", f"{quota.remaining:,.2f}", spent=False)
         else:
@@ -111,7 +116,7 @@ def save_api_keys(path, changes):
         os.environ.update(changes)
 
 
-@st.dialog("API key", on_dismiss=lambda: st.session_state.update({"api-key-dialog-open": False}))
+@dialog("API key", on_dismiss=lambda: st.session_state.update({"api-key-dialog-open": False}))
 def api_key_dialog():
     path = Path.cwd() / ".env"
     st.caption("Saved locally in .env for this app. Changes apply to future requests without restarting. Leave a field blank to keep its saved value.")
@@ -200,6 +205,9 @@ def api_key_button():
     }
     </style>""", unsafe_allow_html=True)
     def open_dialog():
+        from .dialog_ui import request_open
+        request_open()
+        st.session_state.pop("generation-preferences-open", None)
         # Start with blank replacement fields on every opening.
         for key in API_KEYS:
             st.session_state.pop(f"api-key-draft-{key}", None)

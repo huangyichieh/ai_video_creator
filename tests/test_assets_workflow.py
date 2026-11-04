@@ -41,7 +41,7 @@ def test_assets_flow_stops_at_every_human_gate_and_finishes_with_voice_auditions
     state = engine.load()
     assert {record.stage for record in state.records.values()} == {"character_references", "backgrounds"}
     rows = {row["Part"]: row for row in identity_checklist(engine, state)}
-    assert "Approved" in rows["Character Reference Packs"]["Status"]
+    assert "Approved" in rows["Character References"]["Status"]
     assert "no separate image generation" in rows["Costumes"]["Next action"]
     assert "1/1 voice IDs configured" == rows["Voice Profiles"]["Status"]
     assert "1/1 approved" in rows["Voice auditions"]["Status"]

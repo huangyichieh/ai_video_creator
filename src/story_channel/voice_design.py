@@ -6,14 +6,14 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from .animation_models import VoiceProfile
 from .costs import CostTracker
 from .files import atomic_write, input_hash
-from .identity import IdentityManager
 from .llm import OpenAILLMProvider, TransientProviderError, token_cost
-from .locking import project_lock
+from .ledger_lock import ledger_lock
 from .models import Identifier, Model, Nonempty, ProviderConfig, UsageRecord, utc_now
 from .request_tracking import request_fields, tracked_call
+
+VOICE_PROMPT_MAX_CHARACTERS = 499
 
 
 class VoiceDesignPrompt(Model):
@@ -51,6 +51,9 @@ class SavedVoiceDesignPrompt(Model):
 
 
 def voice_design_context(pipeline, character_id, *, narrator=False):
+    from .style_rules import audio_rules, pipeline_rules
+    rules = audio_rules(pipeline_rules(pipeline), kind="voice")
+    style = {"projectVoiceStyle": rules} if rules else {}
     if narrator:
         manifest = pipeline.manager.load(pipeline.project_id)
         samples = []
@@ -59,22 +62,15 @@ def voice_design_context(pipeline, character_id, *, narrator=False):
                 samples = [scene.narration[:500] for scene in pipeline.artifact(stage).scenes if scene.narration.strip()][:4]
                 if samples:
                     break
-        return {"language": manifest.language, "role": "narrator", "title": manifest.title,
+        return {**style, "language": manifest.language, "role": "narrator", "title": manifest.title,
                 "outline": pipeline.manager.read_outline(pipeline.project_id), "narrationSamples": samples,
                 "voicePreferences": "A clear adult storytelling voice, separate from the cast. Gender-neutral unless explicit narrator preferences are supplied."}
     character = next((c for c in pipeline.artifact("characters").characters if c.character_id == character_id), None)
     if character is None:
-        raise ValueError("This character no longer exists. Reopen Voice Profiles.")
-    library = IdentityManager(pipeline.manager, pipeline.project_id).load()
-    profile = library.voices.get(character_id) if library else None
-    if profile is None:
-        from .animation import AnimationDirector
-        state = AnimationDirector(pipeline.manager, pipeline.project_id).load()
-        profile = state.plan.voices.get(character_id) if state else None
-    profile = profile or VoiceProfile(character_id=character_id, age_range=str(character.age), speaking_style=character.speaking_style)
-    return {"language": pipeline.manager.load(pipeline.project_id).language,
-            "character": character.model_dump(mode="json", by_alias=True),
-            "voiceProfile": profile.model_dump(mode="json", by_alias=True, exclude={"voice_id"})}
+        raise ValueError("This character no longer exists. Reopen Assets > Character References > Voice.")
+    from .character_prompt_context import voice_context
+    return {**style, "language": pipeline.manager.load(pipeline.project_id).language,
+            "character": voice_context(character)}
 
 
 def voice_design_file(pipeline, character_id, *, narrator=False):
@@ -94,8 +90,9 @@ def generate_voice_design(pipeline, character_id, *, provider=None, narrator=Fal
     context = voice_design_context(pipeline, character_id, narrator=narrator)
     source = input_hash(context)
     settings = pipeline.settings
-    config = ProviderConfig(provider="openai", model=settings.llm_model if pipeline.demo else pipeline.config.model,
-                            options={"max_output_tokens": min(settings.llm_max_output_tokens, 2000)})
+    from .generation_preferences import openai_config
+    config = openai_config(pipeline, "voice_design", force=True)
+    config.options["max_output_tokens"] = min(settings.llm_max_output_tokens, 2000)
     provider = provider or OpenAILLMProvider(timeout=settings.llm_timeout_sec)
     role = "narrator" if narrator else "character"
     instructions = (
@@ -107,26 +104,32 @@ def generate_voice_design(pipeline, character_id, *, provider=None, narrator=Fal
         "Persona: <2–5 words>. Emotion: <2–3 adjectives>.\n"
         "<1–2 sentences about timbre, pacing, delivery>\n"
         "Use a 2–5 word English persona, 2–3 separate English emotional adjectives, and 1–2 delivery entries, "
-        "each a single sentence. Prefer Studio quality. Use age and explicit voice-profile preferences, "
-        "personality and speaking style. If gender presentation is unspecified, use explicit character facts "
-        "when available, otherwise choose Gender-neutral; do not infer it from a name or voice ID. "
+        "each a single sentence. Prefer Studio quality. For a character, use only age, personality and speaking style, "
+        "plus the project's spoken language. Do not use appearance, clothing, visual traits, backstory, names, IDs, "
+        "or saved provider casting settings. Use Gender-neutral when no explicit vocal gender is supplied; do not infer gender. "
         "Describe clear natural timbre, pacing, intonation and delivery. Do not invent story facts, "
         "imitate a real person, add sound effects (echo/reverb/phone/tape), or include dialogue or explanations. "
-        "Keep the complete formatted prompt under 1000 characters. "
+        f"Keep the complete formatted prompt at most {VOICE_PROMPT_MAX_CHARACTERS} characters, including spaces, punctuation and line breaks. "
+        "Prefer 300–450 characters; keep the delivery description short. "
         + ("Design the narrator as a separate adult storytelling voice; do not copy a cast character's age, gender or persona. Narrator data:\n" if narrator else "Character data:\n")
         + json.dumps(context, ensure_ascii=False))
     step = "voice_design:narrator:voice" if narrator else f"voice_design:{character_id}"
+    def validate_prompt(result):
+        prompt = VoiceDesignPrompt.model_validate(result.model_dump())
+        if len(prompt.render()) > VOICE_PROMPT_MAX_CHARACTERS:
+            raise TransientProviderError("Voice prompt must be less than 500 characters. Retry with a shorter description.")
+        return prompt
+
     for attempt in range(settings.llm_max_retries + 1):
         outcome = "failed"
         try:
-            result = tracked_call(pipeline.manager, pipeline.project_id, step,
-                                  provider.generate, instructions, VoiceDesignPrompt, config)
-            prompt = VoiceDesignPrompt.model_validate(result.model_dump())
-            if len(prompt.render()) > 1000:
-                raise TransientProviderError("Voice prompt was too long. Retry with a shorter description.")
+            retry_hint = "The previous attempt failed. Use shorter phrases and keep the full rendered prompt below 500 characters. " if attempt else ""
+            prompt = tracked_call(pipeline.manager, pipeline.project_id, step,
+                                  provider.generate, retry_hint + instructions, VoiceDesignPrompt, config,
+                                  validate_result=validate_prompt)
             saved = SavedVoiceDesignPrompt(character_id=character_id, role=role, source_hash=source, prompt=prompt,
                                           provider=config.provider, model=config.model)
-            with project_lock(pipeline.path):
+            with ledger_lock(pipeline.path):
                 if input_hash(voice_design_context(pipeline, character_id, narrator=narrator)) != source:
                     raise ValueError("Voice source details changed during generation. Generate the prompt again.")
                 file = voice_design_file(pipeline, character_id, narrator=narrator)
@@ -142,8 +145,7 @@ def generate_voice_design(pipeline, character_id, *, provider=None, narrator=Fal
             usage = dict(getattr(provider, "last_usage", {}) or {})
             cost, known = token_cost(usage, settings.input_cost_per_million,
                                      settings.output_cost_per_million, settings.cached_input_cost_per_million)
-            with project_lock(pipeline.path):
-                CostTracker(pipeline.manager, pipeline.project_id).record(UsageRecord(
-                    provider=config.provider, model=config.model, step=step, outcome=outcome,
-                    input_tokens=usage.get("input_tokens", 0), output_tokens=usage.get("output_tokens", 0),
-                    cost=cost, estimated_cost=cost, pricing_known=known, retry_count=attempt, **request_fields(usage)))
+            CostTracker(pipeline.manager, pipeline.project_id).record(UsageRecord(
+                provider=config.provider, model=config.model, step=step, outcome=outcome,
+                input_tokens=usage.get("input_tokens", 0), output_tokens=usage.get("output_tokens", 0),
+                cost=cost, estimated_cost=cost, pricing_known=known, retry_count=attempt, **request_fields(usage)))

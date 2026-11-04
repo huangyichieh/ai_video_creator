@@ -155,7 +155,7 @@ def test_full_schema_export_and_dialogue_intent(assets, tmp_path, capsys):
 
 def test_identity_ui_draft_save_revert_and_navigation(cast):
     manager, project, _ = cast
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=30).run()
     app.button(key="nav-assets").click().run()
     app.button(key=f"identity-build-{project.project_id}").click().run()
     if "workspace-task" in app.session_state:

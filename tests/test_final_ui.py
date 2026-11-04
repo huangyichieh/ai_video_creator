@@ -17,7 +17,7 @@ def test_final_page_render_review_approve_and_navigation(tmp_path, monkeypatch):
     monkeypatch.setenv('STORY_DATA_ROOT', str(manager.root))
     monkeypatch.setenv('STORY_LLM_PROVIDER', 'demo')
     monkeypatch.setenv('STORY_ASSET_PROVIDER', 'demo')
-    app = AppTest.from_file(str(Path(__file__).parents[1]/'app.py'), default_timeout=30).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=30).run()
     app.button(key='nav-animations').click().run()
     assert not app.exception
     widget(app.text_input, 'Subtitle font').set_value('Arial').run()

@@ -1,4 +1,5 @@
 """Documented Sync multipart lip-sync and ElevenLabs sound-generation adapters."""
+from .service_limits import limited
 import json
 import math
 import os
@@ -32,7 +33,10 @@ class MediaHTTP(ThreadLocalUsage):
             raise TransientProviderError("Media request could not finish; retry to resume any saved job.") from None
         if response.status_code >= 400:
             error = TransientProviderError if response.status_code == 429 or response.status_code >= 500 else ProviderError
-            raise error(f"Media provider returned HTTP {response.status_code}; check credentials, account access and input limits.")
+            from .provider_errors import response_error
+            detail = response_error(response)
+            raise error(f"Media provider returned HTTP {response.status_code}. " +
+                        (detail or "Check credentials, account access and input limits."))
         return response
 
     def _download(self, url, path):
@@ -93,6 +97,7 @@ class SyncLipSyncProvider(MediaHTTP):
 
 
 class ElevenLabsSFXProvider(MediaHTTP):
+    @limited('elevenlabs')
     def generate(self, prompt, config):
         self.last_usage = {}
         secret = os.environ.get("ELEVENLABS_API_KEY", "").strip()
@@ -117,3 +122,33 @@ class ElevenLabsSFXProvider(MediaHTTP):
             file_path=str(destination), duration=config.options["duration"], prompt_hash=input_hash(prompt),
             generation_params={"prompt": prompt, "loop": config.options.get("loop", False),
                                "promptInfluence": config.options.get("prompt_influence", .9)})
+
+
+class ElevenLabsMusicProvider(MediaHTTP):
+    @limited('elevenlabs')
+    def generate(self,prompt,config):
+        self.last_usage = {}
+        secret = os.environ.get("ELEVENLABS_API_KEY","").strip()
+        if not secret:
+            raise ProviderError("Set ELEVENLABS_API_KEY in .env before generating music")
+        duration = config.options["duration"]
+        if not math.isfinite(duration) or not 3 <= duration <= 600 or not prompt.strip() or len(prompt) > 4100:
+            raise ValueError("Music requires a prompt up to 4100 characters and a duration from 3 to 600 seconds.")
+        response = self._request("POST","https://api.elevenlabs.io/v1/music",headers={"xi-api-key":secret},
+            params={"output_format":"mp3_44100_128"},json={"prompt":prompt,"music_length_ms":round(duration*1000),
+                "model_id":config.model,"force_instrumental":True})
+        self.last_usage = {"audio_seconds":duration}
+        units = response.headers.get("character-cost")
+        if units:
+            try:
+                number = float(units)
+                if math.isfinite(number) and number >= 0:
+                    self.last_usage.update(billing_units=number,billing_unit="characters")
+            except ValueError:
+                pass
+        song_id = response.headers.get("song-id")
+        if song_id:
+            self.last_usage["provider_job_id"] = song_id
+        write_bytes(Path(config.options["output_path"]),response.content)
+        return GeneratedAsset(type="audio",provider="elevenlabs",model=config.model,file_path=config.options["output_path"],
+            duration=duration,prompt_hash=input_hash(prompt),generation_params={"prompt":prompt,"instrumental":True,"songId":song_id})

@@ -23,7 +23,7 @@ class ShotRenderer:
         self.stop_requested = stop_requested
         self.manager, self.project_id, self.path = director.manager, director.project_id, director.path
 
-    def previous_frame(self, scene, board):
+    def previous_frame(self, scene, board, options=None):
         position = next(i for i, item in enumerate(board) if item.scene_id == scene.scene_id)
         if position == 0:
             return None
@@ -31,7 +31,8 @@ class ShotRenderer:
         if previous.location_id != scene.location_id or set(previous.character_ids) != set(scene.character_ids):
             return None
         state = self.director.load()
-        records = sorted((r for r in state.shots.values() if r.scene_id == previous.scene_id and r.status == "succeeded" and r.asset and r.end_frame),
+        records = sorted((r for r in state.shots.values() if r.scene_id == previous.scene_id and r.status == "succeeded" and r.asset and r.end_frame
+                          and (options is None or r.asset.generation_params.get("videoSize","1280x720") == options.video_size)),
                          key=lambda r: r.asset.generation_params.get("sequence", [0, 0]))
         if not records:
             return None
@@ -45,7 +46,15 @@ class ShotRenderer:
         state = self.director.require_ready()
         board = self.director.assets.creative.artifact("storyboard").scenes
         pack = self.director.references()
-        required = [f"character_references:{cid}" for cid in scene.character_ids] + [f"backgrounds:{scene.location_id}", f"scene_images:{scene.scene_id}"]
+        from .location_references import LocationReferenceResolver, camera_segments
+        resolver = LocationReferenceResolver(self.director.assets, production)
+        manifest = self.manager.load(self.project_id)
+        backgrounds = resolver.resolve(scene.location_id, scene.camera_start_angle, scene.camera_end_angle, scene.target_area,
+            pitch=scene.camera_pitch,fov=scene.camera_fov,character_position=scene.character_position,
+            interaction_target=scene.interaction_target) if manifest.workflow_version == "world_episode" else [f"backgrounds:{scene.location_id}"]
+        from .shared_room import merge_references
+        merge_references(self.director.assets,production,backgrounds,pack)
+        required = [f"character_references:{cid}" for cid in scene.character_ids] + backgrounds + [f"scene_images:{scene.scene_id}"]
         if any(key not in pack for key in required):
             raise ValueError("Each animated shot requires intact character, location and approved scene-image references")
         scene_provenance = pack[f"scene_images:{scene.scene_id}"]["referenceHashes"]
@@ -56,11 +65,16 @@ class ShotRenderer:
         library = IdentityManager(self.manager, self.project_id).load()
         plans = [shot for shot in state.plan.shots if shot.scene_id == scene.scene_id]
         scene_duration = production.scenes[scene.scene_id].duration
-        previous = self.previous_frame(scene, board)
+        previous = self.previous_frame(scene, board, options)
         paths, durations, active = [], [], set()
         for plan in plans:
             share = scene_duration / len(plans)
             count = max(1, math.ceil(share / min(8, options.video_seconds - plan.overlap_seconds)))
+            camera_start = plan.camera_start_angle if plan.camera_start_angle is not None else scene.camera_start_angle or 0
+            camera_end = plan.camera_end_angle if plan.camera_end_angle is not None else scene.camera_end_angle
+            camera_end = camera_start if camera_end is None else camera_end
+            count = max(count, len(camera_segments(camera_start, camera_end)))
+            target_area = plan.target_area or scene.target_area or plan.interaction_target
             duration = share/count
             for part in range(count):
                 if self.stop_requested():
@@ -68,10 +82,29 @@ class ShotRenderer:
                 sid = f"{plan.shot_id}_part_{part+1:03d}"
                 active.add(sid)
                 record = state.shots.get(sid)
-                start = previous if previous and plan.chain_previous else self.director.assets.local_path(production.scenes[scene.scene_id].image)
+                start_angle = camera_start + (camera_end-camera_start)*part/count
+                end_angle = camera_start + (camera_end-camera_start)*(part+1)/count
+                selected_backgrounds = resolver.resolve(scene.location_id, start_angle, end_angle, target_area,
+                    pitch=plan.camera_pitch,fov=plan.camera_fov,
+                    character_position=plan.character_position if plan.character_position is not None else scene.character_position,
+                    interaction_target=plan.interaction_target or scene.interaction_target,
+                    prefer_details=True) if manifest.workflow_version == "world_episode" else backgrounds
+                merge_references(self.director.assets,production,selected_backgrounds,pack)
+                if not selected_backgrounds:
+                    raise ValueError("Generate current location references for this shot's planned camera angles.")
+                required = [f"character_references:{cid}" for cid in scene.character_ids] + selected_backgrounds + [f"scene_images:{scene.scene_id}"]
+                if any(key not in pack for key in required):
+                    raise ValueError("A selected shot reference is missing or outdated.")
+                references = {key: pack[key] for key in required}
+                start = previous if previous and (plan.chain_previous or part > 0 and camera_end != camera_start) else self.director.assets.local_path(production.scenes[scene.scene_id].image)
                 prompt = (f"Animate shot {sid}, scene {scene.scene_id}. Characters: {scene.character_ids}. "
                     f"This is action segment {part+1} of {count}; continue from the current pose rather than restarting the action. "
                     f"Location ID: {scene.location_id}. Action: {plan.action}. Camera: {plan.camera}. "
+                    f"Camera yaw {start_angle:g} to {end_angle:g} degrees clockwise from the fixed location center; target area: {target_area}. "
+                    f"Camera pitch {plan.camera_pitch:g} degrees; horizontal FOV {plan.camera_fov:g} degrees. "
+                    "Use only the selected angle/area references. Preserve the previous segment's ending frame and fixed object layout. "
+                    "Matching detail backgrounds are scene-ready local views: preserve their environment appearance and perspective where relevant. "
+                    "Panorama masters anchor world-space layout; never relocate fixed objects or replace a local view with a wide panorama. "
                     f"Start pose: {plan.start_pose}. End pose: {plan.end_pose}. "
                     f"Interaction target: {plan.interaction_target}. Costume IDs: {plan.costume_ids}. Prop IDs: {plan.prop_ids}. "
                     f"Location bible: {state.plan.locations[scene.location_id].model_dump_json()}. "
@@ -85,6 +118,10 @@ class ShotRenderer:
                         "props": [library.props[key].model_dump(mode="json") for key in plan.prop_ids]}, ensure_ascii=False)
                 if record and record.modification_prompt:
                     prompt += " Requested modification to the saved shot, preserving unrelated details: " + record.modification_prompt
+                from .style_rules import apply_rules
+                prompt = apply_rules(prompt, production.project_style_rules)
+                from .animation_formats import composition_guidance
+                prompt += " " + composition_guidance(options)
                 driving = None
                 last_frame = None
                 if plan.last_frame:
@@ -151,7 +188,7 @@ class ShotRenderer:
                             from .balanced_providers import KlingVideoProvider
                             if isinstance(selected_provider, KlingVideoProvider):
                                 from .provider_prompts import compile_prompt
-                                provider_prompt = compile_prompt(self.director.assets.creative, prompt, video=True)
+                                provider_prompt = compile_prompt(self.director.assets.creative, prompt, video=True, task_key=f"animation:shot:{sid}:prompt")
                             asset = tracked_call(self.manager, self.project_id, f"animation:shot:{sid}", selected_provider.generate_clip, provider_prompt,
                                 [start] + ([self.director.assets.local_path(pack[k]["file"]) for k in required[:-1]] if options.provider == "runway" and not driving else []), config)
                             rate = self.manager.settings.act_two_cost_per_second if driving else self.manager.settings.runway_video_cost_per_second if options.provider == "runway" else self.manager.settings.video_cost_per_second
@@ -167,8 +204,10 @@ class ShotRenderer:
                             asset.file_path = clip.relative_to(self.path).as_posix()
                             asset.source_scene_id = scene.scene_id
                             asset.generation_params.update(inputHash=key, referencePack=references, startFrame=str(start.relative_to(self.path)),
+                                videoSize=options.video_size,deliveryFormats=options.delivery_formats,portraitSafeArea=options.portrait_safe_area,
                                 startFrameHash=file_hash(start), sequence=[plan.order, part], overlapSeconds=plan.overlap_seconds,
-                                direction=plan.model_dump(mode="json"), performanceHash=input_hash([
+                                direction=plan.model_dump(mode="json"), cameraStartAngle=start_angle, cameraEndAngle=end_angle,
+                                targetArea=target_area, performanceHash=input_hash([
                                     p.model_dump(mode="json") for p in state.plan.performances if p.scene_id == scene.scene_id]))
                             record.asset, record.file_hash = asset, file_hash(clip)
                             record.end_frame, record.end_frame_hash = frame.relative_to(self.path).as_posix(), file_hash(frame)
@@ -216,7 +255,8 @@ def continuity_signature(director):
             raise ApprovalRequired("Complete every animated shot before continuity approval")
         plans = [p for p in state.plan.shots if p.scene_id == scene.scene_id]
         expected = {f"{plan.shot_id}_part_{i+1:03d}" for plan in plans for i in range(max(1,
-            math.ceil(production.scenes[scene.scene_id].duration / len(plans) / min(8, options.video_seconds-plan.overlap_seconds))))}
+            math.ceil((scene.duration_sec if director.manager.load(director.project_id).world_project_id else production.scenes[scene.scene_id].duration)
+                      / len(plans) / min(8, options.video_seconds-plan.overlap_seconds))))}
         if {record.shot_id for record in records} != expected:
             raise ApprovalRequired("The shot plan changed; generate every current shot before continuity approval")
         for record in records:

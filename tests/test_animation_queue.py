@@ -85,7 +85,7 @@ def test_failure_marks_only_failed_task_and_retry_clears_old_errors(tmp_path, mo
 
 def test_waiting_table_shows_live_run_and_replaces_it_for_next_pipeline(tmp_path, monkeypatch):
     from story_channel.media_providers import DemoImageProvider
-    from test_identity_ui import open_assets
+    from test_animations_workflow import open_animations
     from test_ui import finish_background
     engine, director = ready_assets(tmp_path)
     entered, release = Event(), Event()
@@ -95,11 +95,12 @@ def test_waiting_table_shows_live_run_and_replaces_it_for_next_pipeline(tmp_path
         assert release.wait(20)
         return original(self, *args, **kwargs)
     monkeypatch.setattr(DemoImageProvider, "generate", delayed)
-    app = open_assets(engine.manager, monkeypatch)
+    app = open_animations(engine, monkeypatch)
     app.button(key="nav-animations").click().run()
     try:
         app.button(key=f"animation-workflow-next-{engine.project_id}").click().run()
         assert entered.wait(20) and not app.exception
+        app.run()  # Refresh after the worker enters; the click can render while still queued.
         first = AnimationQueue(engine).load()["run_id"]
         table = next(frame.value for frame in app.dataframe if "Order" in frame.value.columns)
         assert "Generating…" in set(table["Status"])

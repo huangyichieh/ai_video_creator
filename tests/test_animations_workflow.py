@@ -33,6 +33,34 @@ def ready_assets(tmp_path):
     return RenderPipeline(manager, project.project_id), director
 
 
+def open_animations(engine, monkeypatch):
+    """Exercise reusable animation controls with a legacy production fixture.
+
+    World/episode shell gates are covered by test_studio_ui and test_scene_production.
+    """
+    from streamlit.testing.v1 import AppTest
+    monkeypatch.setenv("STORY_DATA_ROOT", str(engine.manager.root))
+    monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
+    monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
+    script = f'''
+import streamlit as st
+from story_channel.config import Settings
+from story_channel.projects import ProjectManager
+from story_channel.animations_ui import animations_page
+from story_channel.ui_tasks import collect, preserve_page_widgets
+st.set_page_config(layout="wide")
+preserve_page_widgets()
+collect()
+manager = ProjectManager(Settings.load())
+st.button("Animations", key="nav-animations", on_click=lambda: st.session_state.update(workspace_page="Animations"))
+if st.session_state.get("workspace_page", "Animations") == "Assets":
+    st.info("Reusable assets navigation requested")
+else:
+    animations_page(manager, {engine.project_id!r})
+'''
+    return AppTest.from_string(script, default_timeout=20).run()
+
+
 def test_pipeline_stops_at_human_reviews_and_hands_approved_scenes_to_final(tmp_path):
     engine, director = ready_assets(tmp_path)
     assert animation_snapshot(engine)[0].stage == "scene_images"
@@ -81,16 +109,16 @@ def test_next_stage_stop_and_failure_leave_approvals_untouched(tmp_path, monkeyp
 
 
 def test_ui_status_table_pipeline_buttons_and_review_navigation(tmp_path, monkeypatch):
-    from test_identity_ui import open_assets
     from test_ui import finish_background
     engine, _ = ready_assets(tmp_path)
-    app = open_assets(engine.manager, monkeypatch)
+    app = open_animations(engine, monkeypatch)
     app.button(key="nav-animations").click().run()
     pid = engine.project_id
     assert not app.exception
-    assert [tab.label for tab in app.tabs] == ["1. Scene images", "2. Direction & performance", "3. Voices & input review", "4. Video & effects", "5. Scene review & continuity"]
-    assert any(button.key == f"animation-input-images-{pid}" for button in app.tabs[0].button)
-    assert not any(button.key == f"animation-input-images-{pid}" for button in app.tabs[2].button)
+    from story_channel.animations_workflow import TABS
+    assert [tab.label for tab in app.tabs] == list(TABS)
+    assert any(button.key == f"animation-input-images-{pid}" for button in app.tabs[1].button)
+    assert not any(button.key == f"animation-input-images-{pid}" for button in app.tabs[3].button)
     status = next(frame.value for frame in app.dataframe if "Step" in frame.value.columns)
     assert list(status["Step"]) == sorted(status["Step"])
     next_button = app.button(key=f"animation-workflow-next-{pid}")
@@ -104,7 +132,7 @@ def test_ui_status_table_pipeline_buttons_and_review_navigation(tmp_path, monkey
     app.session_state[f"animation-direction-panel-{pid}"] = False
     app.run()
     app.button(key=f"animation-workflow-next-{pid}").click().run()
-    assert app.session_state[f"page-tab-animations-{pid}"] == "2. Direction & performance"
+    assert app.session_state[f"page-tab-animations-{pid}"] == "Direction & performance"
     assert app.session_state[f"animation-direction-panel-{pid}"] is True
     assert app.session_state[f"animation-approval-navigation-{pid}"]["target"] == f"animation-direction-approval-{pid}"
     assert any("story-approval-highlight" in item.proto.body and "sessionStorage" in item.proto.body for item in app.get("html"))
@@ -125,7 +153,7 @@ def test_ui_status_table_pipeline_buttons_and_review_navigation(tmp_path, monkey
     assert app.button(key=f"animation-performance-approve-{pid}").label == "Approved"
     assert app.button(key=f"animation-performance-approve-{pid}").disabled
     app.button(key=f"animation-workflow-next-{pid}").click().run()
-    assert app.session_state[f"page-tab-animations-{pid}"] == "3. Voices & input review"
+    assert app.session_state[f"page-tab-animations-{pid}"] == "Voices & input"
     assert app.session_state[f"animation-approval-navigation-{pid}"]["target"] == f"animation-input-approval-{pid}"
     assert "assets" not in engine.manager.load(pid).asset_approvals
     engine.assets.approve("assets")
@@ -135,12 +163,12 @@ def test_ui_status_table_pipeline_buttons_and_review_navigation(tmp_path, monkey
     app.run()
     app.button(key=f"animation-workflow-next-{pid}").click().run()
     assert not app.exception
-    assert app.session_state[f"page-tab-animations-{pid}"] == "5. Scene review & continuity"
+    assert app.session_state[f"page-tab-animations-{pid}"] == "Scene review & continuity"
     assert app.session_state[f"animation-scene-panel-{pid}-{sid}"] is True
     assert app.session_state[f"animation-approval-navigation-{pid}"]["target"] == f"animation-scene-approval-{pid}-{sid}"
     assert not engine.load().scenes[sid].approved_hash
-    assert any(button.key == f"approve-scene-{sid}" for button in app.tabs[4].button)
-    assert not any(button.key == f"approve-scene-{sid}" for button in app.tabs[3].button)
+    assert any(button.key == f"approve-scene-{sid}" for button in app.tabs[7].button)
+    assert not any(button.key == f"approve-scene-{sid}" for button in app.tabs[4].button)
     total = len(engine.load().scenes)
     assert app.button(key=f"animation-workflow-next-{pid}").label == f"Next stage: Approve generated scenes 0/{total}"
     assert app.button(key=f"animation-workflow-review-{pid}").label == "Approve all scenes"
@@ -170,6 +198,7 @@ def test_early_project_has_blocked_status_table_and_assets_navigation(tmp_path, 
     from test_workspace_state import workspace
     manager, project, app = workspace(tmp_path, monkeypatch)
     engine = RenderPipeline(manager, project.project_id)
+    app = open_animations(engine, monkeypatch)
     action, rows = animation_snapshot(engine)
     assert action.stage == "assets" and not action.runnable
     assert {row["Stage"] for row in rows} >= {"Scene video", "Video shots / chaining", "Performance approval", "Scene approval", "Continuity approval"}

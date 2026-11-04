@@ -38,7 +38,9 @@ AI_Story_Channel/
 /output/
 /outputs/
 /logs/
+**/error_reports/
 
-# Personal outlines; retain only the bundled sample used by the README
+# Personal inputs; retain only the bundled examples used by the README
 /input/*
 !/input/story_outline.md
+!/input/world_setting.json

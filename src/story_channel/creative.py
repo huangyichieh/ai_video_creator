@@ -1,7 +1,7 @@
 """Provider-neutral, validated contracts for each creative module."""
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, model_serializer
 
 from .models import Dialogue, Identifier, Model, Nonempty, Scene
 
@@ -81,6 +81,8 @@ class ScriptScene(Model):
     character_ids: list[Identifier]
     purpose: Nonempty
     narration: str
+    narration_audio_tags: list[Nonempty] = Field(default_factory=list)
+    sfx: list[Nonempty] = Field(default_factory=list)
     dialogue: list[Dialogue]
     action: Nonempty
     estimated_duration_sec: float = Field(gt=0, allow_inf_nan=False)
@@ -96,8 +98,50 @@ class Script(Model):
         return self
 
 
+class StoryboardProp(Model):
+    prop_id: Identifier
+    title: Nonempty
+    description: Nonempty
+    modes: list[Nonempty] = Field(default_factory=lambda:["default"],min_length=1)
+
+
+class StoryboardBGM(Model):
+    bgm_id: Identifier
+    title: Nonempty
+    description: Nonempty
+
+
+class StoryboardDetailBackground(Model):
+    location_id: Identifier
+    detail_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    area: Nonempty
+    description: Nonempty
+
+
 class Storyboard(Model):
     scenes: list[Scene] = Field(min_length=1)
+    backgrounds: list[Location] = Field(default_factory=list)
+    props: list[StoryboardProp] = Field(default_factory=list)
+    bgm: list[StoryboardBGM] = Field(default_factory=list)
+    detail_backgrounds: list[StoryboardDetailBackground] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def serialize_details(self,handler):
+        data = handler(self)
+        if not self.detail_backgrounds:
+            # Adding an optional contract must not change hashes of saved
+            # storyboards and prompts which predate detail declarations.
+            data.pop("detailBackgrounds",None)
+            data.pop("detail_backgrounds",None)
+        return data
+
+    @model_validator(mode="after")
+    def unique_asset_ids(self):
+        unique([item.location_id for item in self.backgrounds],"background IDs")
+        unique([item.prop_id for item in self.props],"prop IDs")
+        unique([item.bgm_id for item in self.bgm],"BGM IDs")
+        unique([(item.location_id,item.detail_id) for item in self.detail_backgrounds],"detail background IDs")
+        return self
 
     @model_validator(mode="after")
     def unique_scenes(self):

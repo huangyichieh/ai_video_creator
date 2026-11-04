@@ -1,3 +1,4 @@
+from .dialog_ui import dialog
 """One prompt dialog shared by text, structured sources, images and speech."""
 import streamlit as st
 
@@ -8,24 +9,39 @@ from .ui_tasks import busy, launch, launch_assets, launch_render
 from .action_labels import action_label, text_action_label, asset_modify_label
 
 
-def open_modification(project_id, kind, stage, *, subject=None, expected=None):
+def open_modification(project_id, kind, stage, *, subject=None, expected=None, pending_generation_input=None, rerun=True):
     st.session_state["modify-target"] = {"project_id": project_id, "kind": kind, "stage": stage,
                                          "subject": subject, "expected": expected,
                                          "return_browser": st.session_state.pop("active-stage-browser", None)}
-    st.rerun(scope="app")
+    if pending_generation_input is not None:
+        st.session_state["modify-target"]["pending_generation_input"] = pending_generation_input
+    from .dialog_ui import request_open
+    request_open()
+    if rerun:
+        st.rerun(scope="app")
 
 
 def close_modification():
     target = st.session_state.pop("modify-target", None)
+    st.session_state.pop("dialog-open-requested", None)
     if target and target.get("return_browser"):
         st.session_state["active-stage-browser"] = target["return_browser"]
 
 
-@st.dialog("Modify", width="large", on_dismiss=close_modification)
+@dialog("Modify", width="large", on_dismiss=close_modification)
 def modification_dialog(manager, target):
+    # Dismiss in the widget callback, before reloading assets. Streamlit may
+    # still invoke this dialog fragment with its previous arguments afterward.
+    if st.session_state.get("modify-target") != target:
+        st.rerun(scope="app")
     project_id, kind, stage, subject = (target[k] for k in ("project_id", "kind", "stage", "subject"))
+    pending = target.get("pending_generation_input")
+    if pending:
+        from .visual_generation import VisualGeneration
+        VisualGeneration(AssetPipeline(manager, project_id)).update(stage, subject, **pending)
+        target.pop("pending_generation_input", None)
     pipeline = Pipeline(manager, project_id)
-    label = text_action_label("Modify", pipeline)
+    label = text_action_label("Modify", pipeline, f"{stage}:{subject}" if kind == "source" else stage)
     st.subheader((subject or stage).replace("_", " ").title())
     st.caption("Describe the changes you want. The selected service uses the current saved content as the starting point. A new version and API usage are recorded; unrelated details should be preserved.")
     if kind == "vfx":
@@ -59,7 +75,7 @@ def modification_dialog(manager, target):
         st.caption("Edit the current OpenAI clip. Approved narration and subtitle timing are retained when the scene is recomposed.")
     elif kind == "asset":
         engine = AssetPipeline(manager, project_id)
-        label = asset_modify_label(engine, stage)
+        label = asset_modify_label(engine, stage, subject=subject)
         record = engine.load().records.get(f"{stage}:{subject}")
         if record and record.asset:
             path = engine.local_path(record.asset.file_path)
@@ -142,9 +158,7 @@ def modification_dialog(manager, target):
         else:
             launch(lambda: pipeline.modify_with_openai(stage, instructions, expected=target["expected"]),
                    f"Modifying {stage} with OpenAI", finished)
-    if cancel.button("Cancel", key="cancel-openai-modification", disabled=busy()):
-        close_modification()
-        st.rerun(scope="app")
+    cancel.button("Cancel", key="cancel-openai-modification", on_click=close_modification)
 
 
 def show_modification(manager, project_id):

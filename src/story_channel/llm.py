@@ -1,6 +1,8 @@
 """Structured-output OpenAI adapter with explicit, caller-configured pricing."""
+from .service_limits import limited
 from decimal import Decimal
 from typing import TypeVar
+from threading import local
 
 from pydantic import BaseModel, ValidationError
 
@@ -38,21 +40,37 @@ def strict_schema(model: type[BaseModel]) -> dict:
 
 
 class OpenAILLMProvider:
+    @property
+    def last_usage(self):
+        context = self.__dict__.setdefault("_usage_context", local())
+        return getattr(context, "usage", {})
+
+    @last_usage.setter
+    def last_usage(self, value):
+        context = self.__dict__.setdefault("_usage_context", local())
+        context.usage = value
+
     def __init__(self, *, client=None, timeout: float = 120):
         # Lazy construction allows reading/editing/approving projects without a key.
         self.client = client
+        self._owns_client = client is None
         self.timeout = timeout
         self.last_usage: dict = {}
 
-    def generate(self, prompt: str, response_model: type[T], config: ProviderConfig) -> T:
+    @limited('openai')
+    def generate(self, prompt: str | list[dict], response_model: type[T], config: ProviderConfig) -> T:
         from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
         self.last_usage = {}
-        if self.client is None:
+        if self._owns_client:
             import os
-            if not os.environ.get("OPENAI_API_KEY"):
+            key = os.environ.get("OPENAI_API_KEY", "").strip()
+            if not key:
                 raise ProviderError("Set OPENAI_API_KEY before generating, or select the demo provider.")
-            self.client = OpenAI(timeout=self.timeout, max_retries=0)
+            if self.client is None:
+                self.client = OpenAI(api_key=key, timeout=self.timeout, max_retries=0)
+            else:
+                self.client.api_key = key
         if config.provider != "openai":
             raise ProviderError("OpenAILLMProvider requires provider='openai'")
         from .request_tracking import track_client

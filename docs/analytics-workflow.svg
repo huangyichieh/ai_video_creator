@@ -1,21 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="300" viewBox="0 0 1280 300" role="img">
-<title>Analytics | Usage, attribution and billing</title><desc>Analytics covers every workspace. Runway/ElevenLabs invoices and live audience/revenue feeds are not connected.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="466" viewBox="0 0 1280 466" role="img">
+<title>Analytics | Usage, attribution and billing</title><desc>Audience and revenue metrics require a connected publishing analytics source.</desc>
 <rect width="100%" height="100%" fill="white"/>
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker></defs>
 <text x="640" y="46" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="600" fill="#0f172a">Analytics | Usage, attribution and billing</text>
 <text x="640" y="75" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400" fill="#475569">Blue: work  |  Orange: human approval  |  Green: workspace handoff</text>
 <a href="../README.md#analytics"><rect x="40" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
-<text x="230" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">1. Usage + request IDs</text>
-<text x="230" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Attempts attributed to each story</text>
+<text x="230" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">1. Usage / request IDs</text>
+<text x="230" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Every attempt attributed to its</text>
+<text x="230" y="189" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">episode</text>
 </a>
 <a href="../README.md#analytics"><rect x="450" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
 <text x="640" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">2. Provider statistics</text>
-<text x="640" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Calls, failures, configured</text>
-<text x="640" y="189" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">estimates</text>
+<text x="640" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Costs, failures and retries</text>
 </a>
 <a href="../README.md#analytics"><rect x="860" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
-<text x="1050" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">3. OpenAI billed reports</text>
-<text x="1050" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Separate admin API / snapshots</text>
+<text x="1050" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">3. World project cost</text>
+<text x="1050" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Shared assets plus episode costs</text>
 </a>
-<text x="640" y="287" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#475569">Analytics covers every workspace. Runway/ElevenLabs invoices and live audience/revenue feeds are not connected.</text>
+<a href="../README.md#analytics"><rect x="860" y="266" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="1050" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">4. OpenAI billed reports</text>
+<text x="1050" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Account reports remain separate</text>
+</a>
+<text x="640" y="453" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#475569">Audience and revenue metrics require a connected publishing analytics source.</text>
 </svg>

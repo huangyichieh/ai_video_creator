@@ -131,6 +131,8 @@ def test_voice_prompt_shows_loading_without_reopening_dialog_and_survives_close(
 
 def test_parent_task_poller_defers_to_open_dialog_even_when_complete(tmp_path, monkeypatch):
     from concurrent.futures import Future
+    from types import SimpleNamespace
+    import streamlit.runtime.scriptrunner as runner
     from story_channel.ui_tasks import task_status
 
     future = Future()
@@ -139,6 +141,7 @@ def test_parent_task_poller_defers_to_open_dialog_even_when_complete(tmp_path, m
     state = {"voice-design-target": target,
              "workspace-task": {"future": future, "dialog_owner": ("voice-design-target", target)}}
     monkeypatch.setattr(st, "session_state", state)
+    monkeypatch.setattr(runner, "get_script_run_ctx", lambda: SimpleNamespace(fragment_ids_this_run={"task-poll"}))
 
     class AppRerun(Exception):
         pass

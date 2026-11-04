@@ -1,0 +1,38 @@
+"""Production planning guidance shared by storyboard generation and scene edits."""
+ASSET_DESCRIPTIONS = (
+    "ASSET DESCRIPTION CONTENT: New prop descriptions are VISUAL ONLY. Describe the isolated object's visible "
+    "shape, proportions, materials, colors, surface texture, patterns, hardware, wear and visible state. "
+    "Do not include sounds, dialogue, motion choreography, who uses it, its narrative purpose, plot events or generation instructions. "
+    "Prop modes should represent visible states, not sound cues or story beats. Keep character interaction and action in scene fields. "
+    "For example, describe 'a rectangular dark-brown leather case with worn corners and two brass clasps', "
+    "not 'she opens the case with a loud click to reveal the secret'. "
+    "Every new scene sfx entry is SOUND ONLY: describe the audible source, acoustic texture, pitch, loudness, rhythm, "
+    "attack/decay and reverberation where useful. An audible action such as a metal latch clicking shut is valid. "
+    "Do not include visual appearance, colors, camera/framing instructions, character names, plot explanations, "
+    "quoted dialogue, narration or music in an SFX description. For example, 'a short dry metallic click followed by "
+    "a faint spring rattle', not 'the red case opens in close-up while she looks surprised'. "
+    "When transferring script cues, preserve the intended sound but rewrite narrative/visual labels into sound-only descriptions. "
+    "Reuse suitable existing sound-only cue text verbatim; do not copy visual/narrative text into new audio descriptions. "
+    "Keep duration and loop settings in sfxTiming, whose description must match the corresponding sound-only sfx entry exactly. "
+    "Write descriptions in the project's language. "
+)
+
+
+MINIMAL_ASSETS = (
+    "MINIMUM NECESSARY ASSETS: Preserve the approved script, dialogue, story beats and required interactions, "
+    "while keeping the number of new reusable assets as small as possible. First reuse suitable existing assets "
+    "from assetCatalog, sharedBackgrounds and detailBackgrounds, preferably assets with generated media. "
+    "Reuse the same stable IDs across scenes; do not create variants just for different shots, emotions, framing or lighting. "
+    "Use a location master directly when sufficient; request a new detail background only when an essential local view "
+    "cannot be represented adequately by an existing master/detail. Do not create a detail for every shot or camera angle. "
+    "Declare a separate prop only when the script requires a distinct story-critical or handled object. "
+    "Furniture, decor and fixed objects already represented by the background do not need separate prop assets. "
+    "Prefer gestures, expressions or blocking over introducing optional physical objects. Request only prop modes "
+    "actually needed on screen, sharing one default mode whenever sufficient. "
+    "Use only essential SFX; reuse suitable existing sound-only SFX descriptions verbatim from the cue field of assetCatalog.sfx entries "
+    "and use one identical description across scenes for the same sound rather than inventing near-duplicates. "
+    "Reuse an existing BGM cue across scenes when it fits; silence is valid when music is unnecessary. "
+    "Do not add decorative Foley, music, locations or props merely to make a checklist fuller. "
+    "Only declare assets that are referenced by at least one scene. A clearly necessary new asset is allowed; "
+    "do not remove essential story content to satisfy an arbitrary asset quota. "
+)

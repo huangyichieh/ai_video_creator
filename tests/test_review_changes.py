@@ -120,7 +120,7 @@ def test_ui_resolve_each_difference_edit_resets_choice_and_saves_approval(tmp_pa
     monkeypatch.setenv("STORY_DATA_ROOT", str(flow.manager.root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
     monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     assert not any(b.key == "browse-story-approval" for b in app.button)
     app.button(key="browse-review").click().run()
     assert not app.exception
@@ -167,7 +167,7 @@ def test_review_request_failure_is_shown_inside_review_dialog(tmp_path, monkeypa
     def unavailable(*args, **kwargs):
         raise RuntimeError("Review provider unavailable")
     monkeypatch.setattr(Pipeline, "generate", unavailable)
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     app.button(key="browse-review").click().run()
     app.button(key="run-ai-review-story").click().run()
     if "workspace-task" in app.session_state:
@@ -213,7 +213,7 @@ def test_unchanged_button_discards_applied_draft_and_skips_remaining_decisions(t
     monkeypatch.setenv("STORY_DATA_ROOT", str(flow.manager.root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
     monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     app.button(key="browse-review").click().run()
     prefix = f"ai-review-{flow.project_id}-story-{input_hash(session.model_dump(mode='json'))}"
     app.text_area(key=prefix + "-draft-0").set_value("This draft must not be saved.").run()

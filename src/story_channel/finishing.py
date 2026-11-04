@@ -27,7 +27,8 @@ class Finishing:
         self.lip_provider, self.sfx_provider, self.vfx_provider = lip_provider, sfx_provider, vfx_provider
 
     def load(self):
-        return FinishingState.model_validate_json(read_text(self.file)) if self.file.exists() else FinishingState() if self.engine.assets.demo else FinishingState(plan=FinishingPlan(sound_provider="elevenlabs"))
+        from .file_cache import read_model
+        return read_model(self.file, FinishingState) if self.file.exists() else FinishingState() if self.engine.assets.demo else FinishingState(plan=FinishingPlan(sound_provider="elevenlabs"))
 
     def save(self, state):
         atomic_write(self.file, state.model_dump_json(by_alias=True, indent=2))
@@ -251,7 +252,7 @@ class Finishing:
         if self.sfx_provider is None:
             self.sfx_provider = ElevenLabsSFXProvider(timeout=self.manager.settings.llm_timeout_sec)
         provider = self.sfx_provider
-        payload = sound_payload(cue, group)
+        payload = self.sound_payload(cue, group)
         duration = payload["duration"]
         def generate(work, config):
             prompt = sound_prompt(self.engine.assets.creative, payload)
@@ -260,10 +261,18 @@ class Finishing:
             return tracked_call(self.manager, self.project_id, f"finishing:sfx:{sid}:{group}:{index}", provider.generate, prompt, config)
         return self._generate(f"sfx:{sid}:{group}:{index}", sid, payload, provider, "eleven_text_to_sound_v2", generate, force=force)
 
+    def sound_payload(self, cue, group):
+        from .style_rules import audio_rules, pipeline_rules
+        payload = sound_payload(cue, group)
+        rules = audio_rules(pipeline_rules(self.engine.assets.creative), kind="sound")
+        if rules:
+            payload["projectAudioStyle"] = rules
+        return payload
+
     def task_intact(self, record, task):
         if task[0] == "sfx":
             _, group, _, cue = task
-            if not record or record.input_hash != input_hash(sound_payload(cue, group)):
+            if not record or record.input_hash != input_hash(self.sound_payload(cue, group)):
                 return False
         return self._intact(record)
 
@@ -350,7 +359,8 @@ class Finishing:
             if not segment.exists():
                 self.engine.ffmpeg.slice_visual(base, segment, start, duration, options)
             config.options.update(output_path=str(work / "synced.mp4"), face_target=target, duration=duration)
-            asset = tracked_call(self.manager, self.project_id, f"finishing:lipsync:{task.subject}", provider.generate, segment, audio, config)
+            asset = tracked_call(self.manager, self.project_id, f"finishing:lipsync:{task.subject}", provider.generate, segment, audio, config,
+                                 task_key=f"finishing:lipsync:{scene.scene_id}:{task.subject}")
             actual = self.engine.ffmpeg.validate(Path(asset.file_path))
             if actual + 2/options.fps < duration:
                 raise ValueError("Lip-sync output is shorter than the approved dialogue; regenerate instead of looping speech")

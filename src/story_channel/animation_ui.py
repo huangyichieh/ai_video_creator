@@ -1,4 +1,6 @@
 """Reference/voice direction and continuity review, with explicit human approvals."""
+from .error_report_ui import render_error, error_project, report_widget_key
+from .generation_ui import generation_button
 import streamlit as st
 from .animation import AnimationDirector, voice_signature
 from .animation_models import AnimationPlan
@@ -55,11 +57,13 @@ def animation_direction(manager, project_id):
         changed = text != baseline
         if changed:
             st.caption("Modified — not saved")
-        if st.button("Generate performance direction with OpenAI", key=f"animation-performance-generate-{project_id}", disabled=busy() or changed,
+        if generation_button("Generate performance direction with OpenAI", key=f"animation-performance-generate-{project_id}", disabled=busy() or changed,
                      help="Use the selected story LLM to refine shared acting metadata. API usage is recorded, including in Demo mode."):
             expected = state.plan.model_dump_json(by_alias=True)
             instructions = ("Refine every dialogue performance into natural cinematic acting: infer subtext, emotion/intensity, pace, volume, pauses, "
                 "facial expression, gesture, body/eye action, camera reaction and SFX cues from the line and its scene context. "
+                "Preserve and enrich audioTags with compatible emotion, vocalization, delivery, pacing and established character cues; "
+                "keep deliberate integrated sound-effect tags distinct from separately mixed SFX cues and avoid excessive or conflicting tags. "
                 "Keep voice profiles, locations, dialogue text, speaker/scene IDs, shot IDs and driving video selections unchanged. "
                 "Refine concrete shot interaction/action and camera direction where useful; do not invent characters or references.")
             launch(lambda: director.modify_with_openai(instructions, expected), "Generating performance direction",
@@ -70,11 +74,10 @@ def animation_direction(manager, project_id):
                 plan = AnimationPlan.model_validate_json(text)
                 launch(lambda: director.save_plan(plan), "Saving direction", lambda _: st.session_state.pop(draft_key, None))
             except ValueError as exc:
-                st.error(str(exc))
+                render_error(str(exc), project_path=error_project(locals()), key=report_widget_key('animation_ui:74', locals()))
         revert.button("Revert all changes", key=f"animation-revert-{project_id}", disabled=busy() or not changed,
                       on_click=lambda: st.session_state.update({draft_key: baseline}))
-        if modify.button(text_action_label("Modify", director.assets.creative), key=f"animation-modify-{project_id}", disabled=busy() or changed):
-            open_modification(project_id, "animation", "animation_plan", expected=state.plan.model_dump_json(by_alias=True))
+        modify.button(text_action_label("Modify", director.assets.creative, "animation_plan"), key=f"animation-modify-{project_id}", disabled=busy() or changed, on_click=open_modification, args=(project_id, "animation", "animation_plan",), kwargs={'expected': state.plan.model_dump_json(by_alias=True), 'rerun': False})
         report_key = f"animation-typos-{project_id}"
         if typo.button("Check typos", key=f"animation-typos-check-{project_id}", disabled=busy()):
             def checked(report):
@@ -134,7 +137,14 @@ def animation_continuity(engine):
                    "Revision": record.revision, "Attempts": record.attempts, "Progress": record.remote_progress,
                    "Error": record.error or ""} for record in state.shots.values()], hide_index=True, width="stretch")
     for record in state.shots.values():
-        with st.expander(f"{record.shot_id} · {record.status} · revision {record.revision}"):
+        from .ui_panels import persistent_expander
+        panel = persistent_expander(f"{record.shot_id} · {record.status} · revision {record.revision}",
+            key=f"animation-shot-panel-{engine.project_id}-{record.shot_id}")
+        if not panel.open:
+            continue
+        with panel:
+            if record.error:
+                render_error(record.error, project_path=director.path, task_key=f"animation:shot:{record.shot_id}", key=f"shot-error-{engine.project_id}-{record.shot_id}")
             if record.asset:
                 file = director.assets.local_path(record.asset.file_path)
                 if file.exists():
@@ -144,11 +154,10 @@ def animation_continuity(engine):
                 file = director.assets.local_path(record.end_frame)
                 if file.exists():
                     st.image(str(file), caption="Cut frame used to condition the next compatible shot", width=320)
-            if st.button("Retry / regenerate this shot", key=f"animation-shot-retry-{record.shot_id}", disabled=busy()):
+            if generation_button("Retry / regenerate this shot", key=f"animation-shot-retry-{record.shot_id}", disabled=busy()):
                 launch_render(engine, lambda sid=record.shot_id: engine.retry_animation_shot(sid), f"Retrying {record.shot_id}")
             if record.asset and record.asset.generation_params.get("jobId"):
-                if st.button(action_label("Modify", record.asset.provider, record.asset.model), key=f"animation-shot-modify-{record.shot_id}", disabled=busy()):
-                    open_modification(engine.project_id, "animation_shot", "shot", subject=record.shot_id, expected=record.asset.asset_id)
+                st.button(action_label("Modify", record.asset.provider, record.asset.model), key=f"animation-shot-modify-{record.shot_id}", disabled=busy(), on_click=open_modification, args=(engine.project_id, "animation_shot", "shot",), kwargs={'subject': record.shot_id, 'expected': record.asset.asset_id if record and record.asset else None, 'rerun': False})
             st.json(record.model_dump(mode="json", by_alias=True))
     with st.container(key=f"animation-continuity-approval-{engine.project_id}"):
         checked = st.checkbox("I reviewed faces, hair, costumes, props, background layout, lighting, voices, emotion and motion at every cut", key=f"animation-continuity-check-{engine.project_id}")
@@ -191,7 +200,9 @@ def character_voice_controls(manager, project_id, cid):
     error_slot = st.empty()
     if error_key in st.session_state:
         if chosen == st.session_state[error_key]:
-            error_slot.error("voice id does not exist")
+            with error_slot.container():
+                render_error("voice id does not exist", project_path=director.path, task_key=f"voice_validation:{cid}",
+                             key=f"voice-validation-report-{project_id}-{cid}")
         else:
             st.session_state.pop(error_key, None)
     unsaved = bool(library and st.session_state.get(f"identity-draft-{project_id}", library.model_dump_json(by_alias=True, indent=2))
@@ -306,7 +317,7 @@ def character_voices(manager, project_id, *, demo=None):
     state = director.load()
     if not state:
         if library:
-            st.info("Assign a provider Voice ID to each character below. Then approve the identity library and use Generate next asset Stage to set up voices and auditions.")
+            st.info("Assign a provider Voice ID to each character below. Generate and approve voice samples in each character's Voice tab.")
             st.markdown("ElevenLabs: **My Voices → ⋯ → Copy voice ID**. [Voice Library help](https://elevenlabs.io/docs/eleven-creative/voices/voice-library/)")
             for cid, profile in library.voices.items():
                 with st.container(border=True):
@@ -345,7 +356,9 @@ def character_audition_controls(manager, project_id, cid):
     error_key = f"animation-audition-error-{project_id}-{cid}"
     error_slot = st.empty()
     if st.session_state.get(error_key):
-        error_slot.error(st.session_state[error_key])
+        with error_slot.container():
+            render_error(st.session_state[error_key], project_path=director.path, task_key=f"animation:voice_preview:{cid}",
+                         key=f"voice-preview-report-{project_id}-{cid}")
 
     def start(callback, label):
         st.session_state.pop(error_key, None)
@@ -373,14 +386,14 @@ def character_audition_controls(manager, project_id, cid):
     def generate_preview():
         text = st.session_state[sample_key]
         start(lambda: director.preview_voice(cid, text), preview_label)
-    st.button("Generating voice preview..." if active_label == preview_label else "Generate voice preview",
+    generation_button("Generating voice preview..." if active_label == preview_label else "Generate voice preview",
               key=f"animation-preview-{project_id}-{cid}", disabled=busy() or not sample.strip(), on_click=generate_preview)
     emotion = st.selectbox("Sample emotion", ("happy", "sad", "angry", "afraid", "excited"), key=f"animation-emotion-choice-{project_id}-{cid}")
     def generate_emotion():
         text = st.session_state[sample_key]
         feeling = st.session_state[f"animation-emotion-choice-{project_id}-{cid}"]
         start(lambda: director.preview_voice(cid, text, emotion=feeling), f"Previewing {cid}: {feeling}")
-    st.button("Generating emotion sample..." if active_label.startswith(f"Previewing {cid}: ") else "Generate emotion sample",
+    generation_button("Generating emotion sample..." if active_label.startswith(f"Previewing {cid}: ") else "Generate emotion sample",
               key=f"animation-emotion-generate-{project_id}-{cid}", disabled=busy() or not sample.strip(), on_click=generate_emotion)
     for feeling, clip in state.emotion_previews.get(cid, {}).items():
         st.write(feeling.title())

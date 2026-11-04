@@ -18,7 +18,15 @@ def scene_id(stage, subject):
 
 def read_source(pipeline, stage, subject):
     if stage == "backgrounds":
-        return next(c for c in pipeline.artifact("world").locations if c.location_id == subject)
+        locations = pipeline.artifact("world").locations
+        direct = next((location for location in locations if location.location_id == subject), None)
+        if direct:
+            return direct
+        base, _, view = subject.rpartition("__")
+        matched = next((location for location in locations if location.location_id == base), None)
+        if matched and view in ("left", "right", "back"):
+            return matched
+        raise ValueError("Unknown background location or view.")
     sid = scene_id(stage, subject)
     scene = next(c for c in pipeline.artifact("storyboard").scenes if c.scene_id == sid)
     if stage == "voices":
@@ -52,7 +60,7 @@ def edit_source(pipeline, stage, subject, text, *, expected):
             changes[name] = document.model_dump_json(by_alias=True)
 
     if stage == "backgrounds":
-        replace("world", "locations", "location_id", subject, draft)
+        replace("world", "locations", "location_id", baseline.location_id, draft)
     else:
         sid = scene_id(stage, subject)
         replace("storyboard", "scenes", "scene_id", sid, draft.scene)
@@ -68,6 +76,8 @@ def modify_source_with_openai(pipeline, stage, subject, instructions, *, expecte
     from .locking import project_lock
     from .modification import modify_content
     with project_lock(pipeline.path):
+        pipeline._gate({"character_references": "characters", "backgrounds": "world", "scene_images": "storyboard", "voices": "storyboard"}[stage],
+                       pipeline.manager.load(pipeline.project_id))
         if stage == "character_references":
             current = next(c for c in pipeline.artifact("characters").characters if c.character_id == subject)
         else:

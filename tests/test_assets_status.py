@@ -13,7 +13,7 @@ def test_status_covers_every_tab_and_ungenerated_requirements(tmp_path):
     manager, project = prepare(tmp_path)
     engine = AssetPipeline(manager, project.project_id)
     rows = assets_status_rows(engine, engine.inspect())
-    assert {row["Tab"] for row in rows} >= {"Character Reference Packs", "Locations / Backgrounds", "Costumes", "Props", "Voice Profiles", "Style References", "Music / SFX library", "Reusable generated images"}
+    assert {row["Tab"] for row in rows} >= {"Character References", "Locations / Backgrounds", "Costumes", "Props", "Voice Profiles", "Style References", "Music / SFX library", "Reusable generated images"}
     assert all(row["Status"] == "Not generated" for row in rows if row["Stage"] in ("character_references", "backgrounds"))
     assert all(row["Approval"] != "Approved" for row in rows)
     assert any(row["Stage"] == "identity_approval" and "Voice Profiles" in row["Checklist"] for row in rows)

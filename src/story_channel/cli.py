@@ -8,6 +8,7 @@ from .projects import ProjectManager
 from .modules import MODULES, STEPS
 from .pipeline import Pipeline
 from .assets import AssetPipeline
+from .files import input_hash
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -15,11 +16,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, help="JSON settings file")
     parser.add_argument("--data-root", type=Path)
     commands = parser.add_subparsers(dest="command", required=True)
-    create = commands.add_parser("create", help="Create a project from a UTF-8 outline")
+    from .studio_cli import register, duration
+    register(commands)
+    create = commands.add_parser("create", help="Create a World from a UTF-8 settings file")
     create.add_argument("outline", type=Path)
-    create.add_argument("--title", required=True)
+    create.add_argument("--title", help="Optional World title; defaults to the first settings line")
     create.add_argument("--language")
-    create.add_argument("--duration", type=int)
+    create.add_argument("--duration", type=duration, help="Legacy standalone duration; use episode create for current production")
+    create.add_argument("--legacy", action="store_true", help="Create an old standalone story for existing automation")
     show = commands.add_parser("show", help="Validate and print a manifest")
     show.add_argument("project_id")
     outline = commands.add_parser("outline", help="Read a saved outline")
@@ -33,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
         if name in ("generate", "regenerate", "retry"):
             command.add_argument("step", choices=STEPS)
         if name == "approve":
-            command.add_argument("gate", choices=("story", "storyboard"))
+            command.add_argument("gate", choices=("world", "outline", "story", "script", "storyboard", "prompts"))
             command.add_argument("--note", default="")
         if name == "edit":
             command.add_argument("step", choices=("outline", *STEPS))
@@ -63,15 +67,16 @@ def main(argv: list[str] | None = None) -> int:
     assets.add_argument("--subject", help="Generate/retry only one asset subject")
     assets.add_argument("--note", default="")
     assets.add_argument("--voice", help="Built-in provider voice for the voice action")
-    assets.add_argument("--generic-prompt", help="Save shared genre, tone, and style text; provide text, a style reference image, or both")
+    assets.add_argument("--generic-prompt", help="Legacy standalone projects only; World/Episode projects use individual asset prompts")
     reference = assets.add_mutually_exclusive_group()
-    reference.add_argument("--style-reference", type=Path, action="append", help="Save a shared PNG, JPEG or WebP style reference; repeat up to 3 times")
-    reference.add_argument("--remove-style-reference", action="store_true", help="Remove the shared visual style reference")
+    reference.add_argument("--style-reference", type=Path, action="append", help="Legacy standalone projects only: save shared style images (up to 3)")
+    reference.add_argument("--remove-style-reference", action="store_true", help="Legacy standalone projects only: clear shared style images")
     assets.add_argument("--demo", action="store_true", default=None)
-    assets.add_argument("--openai", action="store_true", help="Explicitly select OpenAI asset generation")
+    assets.add_argument("--production", action="store_true", help="Use configured production image/voice providers")
+    assets.add_argument("--openai", dest="production", action="store_true", help=argparse.SUPPRESS)
     render = commands.add_parser("render", help="Render approved assets into video and review the result")
     render.add_argument("project_id")
-    render.add_argument("action", choices=("show", "configure", "run", "regenerate", "approve"))
+    render.add_argument("action", choices=("show", "configure", "run", "regenerate", "approve-scenes", "assemble", "approve"))
     render.add_argument("--scene", help="Render or regenerate only this scene; cache all other scenes")
     render.add_argument("--options", type=Path, help="RenderOptions JSON file")
     render.add_argument("--music-plan", type=Path, help="MusicPlan JSON file with audio sources and cue times")
@@ -92,9 +97,30 @@ def main(argv: list[str] | None = None) -> int:
         configure_logging(settings.log_level, settings.data_root / "logs" / "application.log")
         manager = ProjectManager(settings)
         if args.command == "create":
-            manifest = manager.create(args.title, args.outline, language=args.language,
-                                      target_duration_sec=args.duration)
+            if args.legacy:
+                if not args.title:
+                    raise ValueError("Provide --title for a legacy standalone story.")
+                manifest = manager.create(args.title, args.outline, language=args.language, target_duration_sec=args.duration)
+            else:
+                if args.duration is not None:
+                    raise ValueError("Set target length on episode create; World creation only needs settings.")
+                from .studio import WorldStudio
+                source = args.outline.read_text(encoding="utf-8-sig")
+                if args.outline.suffix.lower() == ".json":
+                    import json
+                    from .worldview import WorldSettings
+                    data = json.loads(source)
+                    source = WorldSettings.model_validate(data.get("settings", data))
+                manifest = WorldStudio.create(manager, source)
+                manifest.title = args.title or manifest.title
+                manifest.language = args.language or manifest.language
+                manager.save(manifest)
             print(manifest.model_dump_json(by_alias=True, indent=2))
+        elif args.command in ("world", "episode"):
+            import json
+            from .studio_cli import execute
+            result = execute(manager, args)
+            print(json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, list) else result.model_dump_json(by_alias=True, indent=2))
         elif args.command == "show":
             print(manager.load(args.project_id).model_dump_json(by_alias=True, indent=2))
         elif args.command == "outline":
@@ -114,10 +140,13 @@ def main(argv: list[str] | None = None) -> int:
                 from .render_models import RenderState
                 from .models import Manifest, GeneratedAsset, UsageRecord
                 from .finishing_models import FinishingPlan, FinishingState
+                from .studio import WorldState, TextReview
+                from .scene_production import SceneDirection
                 contracts.update(manifest=Manifest, generated_asset=GeneratedAsset, usage=UsageRecord,
                     identity=IdentityLibrary, voice_profile=VoiceProfile, performance=Performance,
                     animation_plan=AnimationPlan, animation=AnimationState, production=Production,
-                    render=RenderState, dialogue_review=SavedDialogueReview, finishing_plan=FinishingPlan, finishing=FinishingState)
+                    render=RenderState, dialogue_review=SavedDialogueReview, finishing_plan=FinishingPlan, finishing=FinishingState,
+                    world_setting=WorldState, text_review=TextReview, scene_direction=SceneDirection)
             for name, model in contracts.items():
                 atomic_write(args.directory / f"{name}.schema.json", json.dumps(model.model_json_schema(), ensure_ascii=False, indent=2))
             print(f"Exported {len(contracts)} schemas to {args.directory}")
@@ -202,13 +231,18 @@ def main(argv: list[str] | None = None) -> int:
                 result = engine.inspect()
             elif args.action == "approve":
                 result = engine.approve(args.note)
+            elif args.action == "approve-scenes":
+                result = engine.approve_scenes([args.scene] if args.scene else list(engine.load().scenes))
+            elif args.action == "assemble":
+                result = engine.assemble_final()
             else:
-                result = engine.run(subject=args.scene, force=args.action == "regenerate")
+                result = engine.run(subject=args.scene, force=args.action == "regenerate",
+                                    assemble=not bool(manager.load(args.project_id).world_project_id))
             print(result.model_dump_json(by_alias=True, indent=2))
         elif args.command == "assets":
-            if args.demo and args.openai:
-                raise ValueError("Choose either --demo or --openai")
-            engine = AssetPipeline(manager, args.project_id, demo=False if args.openai else args.demo)
+            if args.demo and args.production:
+                raise ValueError("Choose either --demo or --production")
+            engine = AssetPipeline(manager, args.project_id, demo=False if args.production else args.demo)
             if args.style_reference:
                 engine.set_style_references([path.read_bytes() for path in args.style_reference])
             elif args.remove_style_reference:
@@ -238,7 +272,16 @@ def main(argv: list[str] | None = None) -> int:
             if args.command in ("run", "resume"):
                 manifest = pipeline.run()
             elif args.command == "approve":
-                manifest = pipeline.approve(args.gate, args.note)
+                if args.gate == "world":
+                    from .studio import WorldStudio
+                    world = WorldStudio(manager, args.project_id, pipeline)
+                    world.approve_base(expected=input_hash(world.load().base_text))
+                    manifest = manager.load(args.project_id)
+                elif args.gate in ("outline", "script", "prompts"):
+                    from .studio import approve_content, content_digest
+                    manifest = approve_content(pipeline, args.gate, expected=content_digest(pipeline, args.gate))
+                else:
+                    manifest = pipeline.approve(args.gate, args.note)
             elif args.command == "edit":
                 pipeline.edit(args.step, args.file.read_text(encoding="utf-8-sig"))
                 manifest = pipeline.inspect()

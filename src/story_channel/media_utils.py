@@ -4,16 +4,24 @@ import os
 import tempfile
 import wave
 from pathlib import Path
+from functools import lru_cache
 
 from .asset_models import Cue
 
 
-def file_hash(path: Path) -> str:
+@lru_cache(maxsize=256)
+def _file_hash(path: Path, stamp) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def file_hash(path: Path) -> str:
+    from .file_cache import version
+    path = Path(path).resolve()
+    return _file_hash(path, version(path))
 
 
 def write_bytes(path: Path, data: bytes):

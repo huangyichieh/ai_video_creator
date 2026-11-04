@@ -86,13 +86,14 @@ def draft_fields(drafts: dict[str, str]) -> list[dict[str, str]]:
     return fields
 
 
-def check_typos(pipeline, drafts: dict[str, str], stage: str, *, provider=None) -> TypoReport:
+def check_typos(pipeline, drafts: dict[str, str], stage: str, *, provider=None, task_key=None) -> TypoReport:
     fields = draft_fields(drafts)
     if not fields:
         raise ValueError("There is no text to check.")
     settings = pipeline.settings
-    config = ProviderConfig(provider="openai", model=(settings.llm_model if pipeline.demo else pipeline.config.model),
-                            options={"max_output_tokens": min(settings.llm_max_output_tokens, 8000)})
+    from .generation_preferences import openai_config
+    config = openai_config(pipeline, "typo_check:" + stage, force=True)
+    config.options["max_output_tokens"] = min(settings.llm_max_output_tokens, 8000)
     provider = provider or OpenAILLMProvider(timeout=settings.llm_timeout_sec)
     prompt = ("Proofread the supplied text fields for typos, spelling, wrong characters, and clear punctuation errors. "
               "Preserve the original language, Traditional/Simplified Chinese variant, names, story facts, and style. "
@@ -105,7 +106,7 @@ def check_typos(pipeline, drafts: dict[str, str], stage: str, *, provider=None) 
     for attempt in range(settings.llm_max_retries + 1):
         outcome = "failed"
         try:
-            report = TypoReport.model_validate(tracked_call(pipeline.manager, pipeline.project_id, f"typo_check:{stage}", provider.generate, prompt, TypoReport, config).model_dump())
+            report = TypoReport.model_validate(tracked_call(pipeline.manager, pipeline.project_id, f"typo_check:{stage}", provider.generate, prompt, TypoReport, config, task_key=task_key).model_dump())
             for suggestion in report.suggestions:
                 text = lookup.get((suggestion.source, suggestion.field), "")
                 if suggestion.original not in text:

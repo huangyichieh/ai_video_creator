@@ -122,7 +122,7 @@ def test_ui_auto_fetch_refresh_navigation_unknown_cost_and_stale_report(tmp_path
     app.button(key='nav-analytics').click().run()
     assert not app.exception
     assert next(m for m in app.metric if m.label=='OpenAI account billed cost (USD)').value=='$1.14'
-    assert any('last successful report' in w.value for w in app.warning)
+    assert any('last successful report' in w.value for w in app.error)
     # Selecting another period changes the cache scope without rounding individual rows.
     from datetime import timedelta
     today=datetime.now(timezone.utc).date()
@@ -162,8 +162,8 @@ def test_default_billing_client_uses_only_admin_auth_and_fixed_endpoint(monkeypa
 
 
 @pytest.mark.parametrize('fields,expected', [
-    ({'current_step':'characters'}, 'Story & Settings: Characters'),
-    ({'current_step':'story_review'}, 'Story & Settings: AI Review (Story)'),
+    ({'current_step':'characters'}, 'Story/Episode: Characters'),
+    ({'current_step':'story_review'}, 'Story/Episode: AI Review (Story)'),
     ({'current_step':'complete','asset_step':'backgrounds'}, 'Assets: Backgrounds'),
     ({'current_step':'complete','asset_state':'approved','render_state':'review'}, 'Final: Human final approval'),
     ({'current_step':'complete','asset_state':'approved','render_state':'approved'}, 'Final: Complete'),

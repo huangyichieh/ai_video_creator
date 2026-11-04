@@ -45,7 +45,9 @@ def test_voice_design_uses_character_context_and_saves_copyable_prompt_with_requ
     def handler(request):
         sent = json.loads(request.content)
         assert sent["model"] == pipeline.settings.llm_model
-        assert '"characterId": "' + cid + '"' in sent["input"]
+        context = json.loads(sent["input"].split("Character data:\n", 1)[1])
+        assert set(context["character"]) == {"age", "personality", "speakingStyle"}
+        assert "voiceProfile" not in context
         assert "2–5 word English persona" in sent["input"]
         assert "zh-TW means Taiwan Mandarin Chinese" in sent["input"]
         return httpx.Response(200, json=payload, headers={"x-request-id": "req_voice_design"})
@@ -101,6 +103,10 @@ def test_context_uses_only_selected_character_and_marks_changed_settings(voice_p
     expected = library.model_dump_json(by_alias=True)
     library.voices[cid].speaking_style = "measured and gentle"
     identity.save(library, expected=expected)
+    assert input_hash(voice_design_context(pipeline, cid)) == original
+    character = next(c for c in pipeline.artifact("characters").characters if c.character_id == cid)
+    edited = character.model_copy(update={"speaking_style": "measured and gentle"})
+    pipeline.edit_character(cid, edited.model_dump_json(by_alias=True), expected=character.model_dump_json(by_alias=True))
     assert input_hash(voice_design_context(pipeline, cid)) != original
     with pytest.raises(ValueError, match="no longer exists"):
         generate_voice_design(pipeline, "missing-character")
@@ -149,3 +155,59 @@ def test_narrator_design_uses_story_context_and_separate_storage(voice_project):
     record = CostTracker(pipeline.manager, pipeline.project_id).records()[-1]
     assert record.step == "voice_design:narrator:voice" and record.cost == Decimal("0.002")
     assert "narrator" not in IdentityManager(pipeline.manager, pipeline.project_id).load().voices
+
+
+@pytest.mark.parametrize("narrator", [False, True])
+@pytest.mark.parametrize("length", [499, 500])
+def test_rendered_prompt_must_be_less_than_500_characters(voice_project, narrator, length):
+    pipeline, cid = voice_project
+    subject = "narrator" if narrator else cid
+
+    class Provider:
+        last_usage = {"input_tokens": 1000, "output_tokens": 500}
+        result = designed_prompt()
+
+        def generate(self, instructions, *args):
+            assert "at most 499 characters" in instructions
+            return self.result
+
+    provider = Provider()
+    original = generate_voice_design(pipeline, subject, provider=provider, narrator=narrator)
+    provider.result = designed_prompt().model_copy(update={"delivery": ["x"]})
+    overhead = len(provider.result.render()) - 1
+    provider.result.delivery = ["x" * (length - overhead)]
+    assert len(provider.result.render()) == length
+    if length == 499:
+        saved = generate_voice_design(pipeline, subject, provider=provider, narrator=narrator)
+        assert len(saved.prompt.render()) == 499
+    else:
+        with pytest.raises(TransientProviderError, match="less than 500"):
+            generate_voice_design(pipeline, subject, provider=provider, narrator=narrator)
+        assert load_voice_design(pipeline, subject, narrator=narrator) == original
+        usage = CostTracker(pipeline.manager, pipeline.project_id).records()[-1]
+        assert usage.outcome == "failed" and usage.cost == Decimal("0.002")
+
+
+def test_overlong_prompt_is_retried_without_cutting_off_text(voice_project, monkeypatch):
+    pipeline, cid = voice_project
+    pipeline.settings.llm_max_retries = 1
+    monkeypatch.setattr("story_channel.voice_design.time.sleep", lambda _: None)
+
+    class Provider:
+        calls = 0
+        last_usage = {"input_tokens": 1000, "output_tokens": 500}
+
+        def generate(self, instructions, *args):
+            self.calls += 1
+            if self.calls == 1:
+                return designed_prompt().model_copy(update={"delivery": ["Long description " * 40]})
+            assert "Use shorter phrases" in instructions
+            return designed_prompt()
+
+    provider = Provider()
+    saved = generate_voice_design(pipeline, cid, provider=provider)
+    assert provider.calls == 2
+    assert saved.prompt == designed_prompt()
+    assert len(saved.prompt.render()) < 500
+    usage = CostTracker(pipeline.manager, pipeline.project_id).records()[-2:]
+    assert [record.outcome for record in usage] == ["failed", "succeeded"]

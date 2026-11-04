@@ -24,8 +24,8 @@ def test_finishing_ui_add_save_revert_navigate_select_and_generate(tmp_path, mon
     monkeypatch.setenv("STORY_DATA_ROOT", str(manager.root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
     monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
-    pid = project.project_id
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+    pid = project.project_id + "-video"
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=30).run()
     app.button(key="nav-animations").click().run()
     assert not app.exception
     app.number_input(key=f"finishing-setting-{pid}-effect-duration").set_value(.5).run()

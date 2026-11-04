@@ -49,7 +49,8 @@ class IdentityManager:
 
     def load(self):
         file = self.path / "identity_library.json"
-        return IdentityLibrary.model_validate_json(file.read_text(encoding="utf-8")) if file.exists() else None
+        from .file_cache import read_model
+        return read_model(file, IdentityLibrary) if file.exists() else None
 
     def source(self):
         return input_hash({name: self.pipeline.artifact(name).model_dump(mode="json")
@@ -57,7 +58,8 @@ class IdentityManager:
 
     def validate(self, library):
         chars = {c.character_id for c in self.pipeline.artifact("characters").characters}
-        locations = {loc.location_id for loc in self.pipeline.artifact("world").locations}
+        from .background_library import locations as background_locations
+        locations = {loc.location_id for loc in background_locations(self.pipeline)}
         if library.source_hash != self.source():
             raise ValueError("World or characters changed; rebuild the identity library")
         if set(library.voices) != chars or set(library.locations) != locations:
@@ -78,6 +80,8 @@ class IdentityManager:
                 raise ValueError("Props need matching IDs and valid owner/location IDs")
 
     def _write(self, library):
+        from .storyboard_assets import pin_legacy_asset_catalog
+        pin_legacy_asset_catalog(self.manager,self.project_id)
         atomic_write(self.path / "identity_library.json", library.model_dump_json(by_alias=True, indent=2))
         for filename, entries in (("voice_profiles.json", library.voices), ("location_bible.json", library.locations),
                                   ("costume_registry.json", library.costumes), ("prop_registry.json", library.props)):
@@ -87,6 +91,33 @@ class IdentityManager:
                      + "\n".join(f"- {key}: {item.description}" for key, item in library.costumes.items())
                      + "\n\n" + "\n".join(f"- {key}: {item.description}; state: {item.state}" for key, item in library.props.items()))
 
+    def scope_shared(self, library):
+        """Import reusable metadata without expanding an episode's frozen cast."""
+        previous = self.load()
+        characters = {c.character_id:c for c in self.pipeline.artifact("characters").characters}
+        from .background_library import locations
+        known_locations = {loc.location_id:loc for loc in locations(self.pipeline)}
+        result = library.model_copy(deep=True)
+        result.source_hash = self.source()
+        result.voices = {cid:(library.voices.get(cid) or (previous.voices.get(cid) if previous else None)
+            or VoiceProfile(character_id=cid,age_range=str(character.age),speaking_style=character.speaking_style)).model_copy(deep=True)
+            for cid,character in characters.items()}
+        result.costumes = {key:value for key,value in result.costumes.items() if value.character_id in characters}
+        for cid,character in characters.items():
+            if not any(item.character_id == cid for item in result.costumes.values()):
+                costume_id = cid[:119]+"_default"
+                result.costumes[costume_id] = Costume(costume_id=costume_id,character_id=cid,description=character.clothing)
+        result.locations = {lid:(library.locations.get(lid) or LocationBible(location_id=lid,description=loc.description)).model_copy(deep=True)
+            for lid,loc in known_locations.items()}
+        for prop in result.props.values():
+            if prop.owner_id not in characters:
+                prop.owner_id = None
+            if prop.location_id not in known_locations:
+                prop.location_id = None
+        result.approval = None
+        self.validate(result)
+        return result
+
     def prepare(self):
         self.pipeline.inspect()
         with project_lock(self.path):
@@ -95,7 +126,8 @@ class IdentityManager:
                 raise ValueError("Complete World and Characters before building identity assets")
             old = self.load()
             chars = self.pipeline.artifact("characters").characters
-            locations = self.pipeline.artifact("world").locations
+            from .background_library import locations as background_locations
+            locations = background_locations(self.pipeline)
             library = IdentityLibrary(source_hash=self.source(),
                 voices={c.character_id: VoiceProfile(character_id=c.character_id, age_range=str(c.age), speaking_style=c.speaking_style)
                         for c in chars}, locations={loc.location_id: LocationBible(location_id=loc.location_id, description=loc.description)
@@ -155,16 +187,40 @@ class IdentityManager:
             self._write(library)
             return library
 
+    def save_costume(self, character_id, costume_id, description, *, expected=None):
+        library = self.load()
+        if library is None or character_id not in library.voices:
+            raise ValueError("Choose an existing character before adding a costume.")
+        baseline = library.model_dump_json(by_alias=True)
+        costume_id = costume_id.strip() or "costume_" + uuid4().hex[:12]
+        current = library.costumes.get(costume_id)
+        if expected is None and current is not None:
+            raise ValueError("This costume ID already exists. Choose another ID.")
+        if expected is not None and (current is None or current != Costume.model_validate_json(expected)):
+            raise ValueError("This costume changed. Reload it before saving.")
+        if current and current.character_id != character_id:
+            raise ValueError("This costume belongs to another character.")
+        costume = Costume(costume_id=costume_id, character_id=character_id, description=description.strip())
+        library.costumes[costume_id] = costume
+        self.save(library, expected=baseline)
+        return costume
+
     def signature(self, library):
         self.validate(library)
         from .assets import AssetPipeline
         assets = AssetPipeline(self.manager, self.project_id)
         state = assets.load()
         try:
-            used_locations = {s.location_id for s in self.pipeline.artifact("storyboard").scenes}
+            board = self.pipeline.artifact("storyboard").scenes
+            used_locations = {s.location_id for s in board}
+            used_characters = {cid for scene in board for cid in scene.character_ids}
         except OSError:
             used_locations = set(library.locations)
-        keys = [f"character_references:{cid}" for cid in library.voices] + [f"backgrounds:{lid}" for lid in used_locations]
+            used_characters = set(library.voices)
+        manifest = self.manager.load(self.project_id)
+        from .background_panorama import reference_keys
+        keys = [f"character_references:{cid}" for cid in library.voices if cid in used_characters] + [key for lid in used_locations
+            for key in (reference_keys(state, lid) if manifest.workflow_version == "world_episode" else [f"backgrounds:{lid}"])]
         records = {}
         for key in keys:
             record = state.records.get(key)
@@ -174,7 +230,18 @@ class IdentityManager:
         manifest = self.manager.load(self.project_id)
         if not {"characters", "backgrounds"} <= manifest.asset_approvals.keys():
             raise ApprovalRequired("Approve character and background references first")
-        if any(not profile.voice_id.strip() for profile in library.voices.values()):
+        if manifest.workflow_version == "world_episode":
+            assets.demo = state.provider_mode == "demo"
+            tasks = assets.tasks(state)
+            for gate, stage in (("characters", "character_references"), ("backgrounds", "backgrounds")):
+                if (not assets._stage_done(stage, state, tasks)
+                        or manifest.asset_approvals[gate].content_hash != assets._gate_hash(gate, state, tasks)):
+                    raise ApprovalRequired("Generate and approve the current " + gate + " references first")
+            if state.character_approvals and any(not assets.character_approved(cid, state, tasks) for cid in used_characters):
+                raise ApprovalRequired("Approve the current character details and references first")
+            records = {task.key: state.records[task.key].file_hash for task in tasks
+                       if task.stage in ("character_references", "backgrounds")}
+        if any(not profile.voice_id.strip() for cid,profile in library.voices.items() if cid in used_characters):
             raise ApprovalRequired("Choose every character's explicit provider Voice ID")
         return input_hash({"library": library.model_dump(mode="json", exclude={"approval"}),
                            "references": records, "style": state.generic_prompt, "styleImage": state.style_reference_hash})
@@ -193,6 +260,18 @@ class IdentityManager:
 
     def require_approved(self):
         library = self.load()
+        if self.manager.load(self.project_id).workflow_version == "world_episode":
+            if library is None:
+                raise ApprovalRequired("Create characters and configure their shared asset settings on Assets first.")
+            if not self.manager.load(self.project_id).world_project_id:
+                from .assets_workflow import minimum_asset_inventory
+                from .assets import AssetPipeline
+                if all(minimum_asset_inventory(AssetPipeline(self.manager,self.project_id))):
+                    return library
+            # Current projects use character/background approvals, with the same
+            # structural and Voice ID checks. No separate library approval click.
+            self.signature(library)
+            return library
         if library is None or not library.approval or library.approval.content_hash != self.signature(library):
             raise ApprovalRequired("Review and approve the current identity library in Assets")
         return library

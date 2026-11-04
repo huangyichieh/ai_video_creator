@@ -2,15 +2,17 @@ from types import SimpleNamespace
 
 from story_channel.render_models import SoundCue
 from story_channel.sound_prompts import SoundDescription, sound_payload, sound_prompt
+from test_pipeline import flow
 
 
-def test_non_english_description_is_translated_once_and_preserves_sound_intent(tmp_path, monkeypatch):
+def test_non_english_description_is_translated_once_and_preserves_sound_intent(flow, monkeypatch):
     calls = []
     def translate(pipeline, current, instructions, stage):
         calls.append((current.text, instructions, stage))
         return SoundDescription(text="Rapid nonverbal breathing, close and dry")
     monkeypatch.setattr("story_channel.modification.modify_content", translate)
-    pipeline = SimpleNamespace(path=tmp_path, demo=False, config=SimpleNamespace(model="test-model"))
+    pipeline = flow
+    pipeline.demo = False
     payload = sound_payload(SoundCue(name="呼吸急促聲", duration=3), "cues")
     first = sound_prompt(pipeline, payload)
     assert first == sound_prompt(pipeline, payload)

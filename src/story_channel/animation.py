@@ -19,7 +19,8 @@ from .request_tracking import tracked_call, request_fields
 
 def load_animation(path):
     file = path / "animation.json"
-    return AnimationState.model_validate_json(file.read_text(encoding="utf-8")) if file.exists() else None
+    from .file_cache import read_model
+    return read_model(file, AnimationState) if file.exists() else None
 
 
 def voice_signature(profile, settings):
@@ -103,6 +104,8 @@ class AnimationDirector:
             for shot in state.plan.shots) + "\n\nVoice casting, emotion and visual continuity require human approval.\n")
 
     def prepare(self):
+        from .storyboard_asset_check import require
+        require(self.manager,self.project_id)
         self.assets.creative.inspect()
         with project_lock(self.path):
             manifest = self.manager.load(self.project_id)
@@ -112,16 +115,23 @@ class AnimationDirector:
             chars = self.assets.creative.artifact("characters").characters
             world = self.assets.creative.artifact("world")
             board = self.assets.creative.artifact("storyboard").scenes
+            if manifest.world_project_id:
+                production = self.assets.load()
+                if any(not production.records.get("scene_images:" + s.scene_id) or not self.assets._intact(production.records["scene_images:" + s.scene_id]) for s in board):
+                    raise ApprovalRequired("Generate all scene snapshots before building direction.")
             old = self.load()
             plan = AnimationPlan(source_hash=self.source(), voices={c.character_id: VoiceProfile(
                 character_id=c.character_id, age_range=str(c.age), speaking_style=c.speaking_style) for c in chars},
                 locations={location.location_id: LocationBible(location_id=location.location_id, description=location.description)
                            for location in world.locations},
-                performances=[Performance(scene_id=s.scene_id, line_index=i, character_id=line.character_id, text=line.text,
+                performances=[Performance(scene_id=s.scene_id, line_index=i, character_id=line.character_id, text=line.text, audio_tags=line.audio_tags,
                               gesture=s.action, facial_expression="Match the scene's emotional intent")
                               for s in board for i, line in enumerate(s.dialogue)],
                 shots=[ShotPlan(shot_id=f"{s.scene_id}_shot_01", scene_id=s.scene_id, order=1,
-                                action=s.action or s.visual_description, camera=s.camera_movement or s.shot_type) for s in board])
+                                action=s.action or s.visual_description, camera=s.camera_movement or s.shot_type,
+                                camera_start_angle=s.camera_start_angle, camera_end_angle=s.camera_end_angle,
+                                camera_pitch=s.camera_pitch,camera_fov=s.camera_fov,target_area=s.target_area,
+                                character_position=s.character_position,interaction_target=s.interaction_target,prop_ids=s.prop_ids) for s in board])
             if old:
                 for cid in plan.voices:
                     if cid in old.plan.voices:
@@ -149,11 +159,40 @@ class AnimationDirector:
                     scene = next(s for s in board if s.scene_id == shot.scene_id)
                     shot.costume_ids = [next(key for key, item in library.costumes.items() if item.character_id == cid)
                                         for cid in scene.character_ids]
-                    shot.prop_ids = [key for key, item in library.props.items()
-                                     if item.owner_id in scene.character_ids or item.location_id == scene.location_id]
+                    shot.prop_ids = list(dict.fromkeys([*scene.prop_ids,*[key for key,item in library.props.items()
+                        if item.owner_id in scene.character_ids or item.location_id == scene.location_id]]))
                     shot.sfx_cues = list(scene.sfx)
+            for lid, config in self.assets.load().location_reference_sets.items():
+                if lid in plan.locations:
+                    plan.locations[lid].layout = config.get("floor_plan", "")
+                    plan.locations[lid].fixed_props = json.dumps(config.get("object_layout", {}), ensure_ascii=False)
             state = AnimationState(plan=plan, previews=old.previews if old else {},
                                    emotion_previews=old.emotion_previews if old else {})
+            if manifest.world_project_id and (self.path / "library_media.json").exists():
+                from .models import GeneratedAsset, AudioAsset
+                shared = json.loads((self.path / "library_media.json").read_text(encoding="utf-8"))
+                from .library_media import LibraryMedia
+                media = LibraryMedia(self.manager, self.project_id)
+                for cid, profile in plan.voices.items():
+                    if not media.voice_approved(cid, profile, shared):
+                        continue
+                    for sample in media.selected_samples(cid, profile, shared):
+                        if not sample.get("audioAsset"):
+                            continue
+                        if (sample["audioAsset"].get("provider") != ("demo" if self.assets.demo else self.manager.settings.tts_provider)
+                                or sample["audioAsset"].get("model") != ("demo-voice" if self.assets.demo else self.manager.settings.tts_model)):
+                            continue
+                        path = self.assets.local_path(sample["audio"])
+                        if not path.exists() or file_hash(path) != sample["fileHash"]:
+                            continue
+                        signature = voice_signature(profile, self.manager.settings)
+                        asset_model = AudioAsset if "voiceId" in sample["audioAsset"] else GeneratedAsset
+                        preview = VoicePreview(profile_hash=signature, file_hash=sample["fileHash"],
+                            asset=asset_model.model_validate(sample["audioAsset"]), approval=ApprovalRecord(content_hash=signature))
+                        if sample["emotion"] == "neutral":
+                            state.previews[cid] = preview
+                        else:
+                            state.emotion_previews.setdefault(cid, {})[sample["emotion"]] = preview
             self.save_state(state)
             return state
 
@@ -165,7 +204,10 @@ class AnimationDirector:
         if set(plan.voices) != chars or any(cid != profile.character_id for cid, profile in plan.voices.items()):
             raise ValueError("Keep the current character IDs in every voice profile")
         logical_voices = {}
+        used_characters = {cid for scene in board for cid in scene.character_ids}
         for character in self.assets.creative.artifact("characters").characters:
+            if self.manager.load(self.project_id).world_project_id and character.character_id not in used_characters:
+                continue
             chosen = plan.voices[character.character_id].voice_id
             if character.voice_id in logical_voices and logical_voices[character.voice_id] != chosen:
                 raise ValueError("Characters sharing a logical Voice ID must share its voice; give them distinct logical Voice IDs in Characters to cast different voices")
@@ -188,7 +230,12 @@ class AnimationDirector:
         library = identity.load()
         if library:
             identity.validate(library)
-            if plan.voices != library.voices or plan.locations != library.locations:
+            expected_locations = {key:item.model_copy(deep=True) for key,item in library.locations.items()}
+            for lid,config in self.assets.load().location_reference_sets.items():
+                if lid in expected_locations:
+                    expected_locations[lid].layout = config.get("floor_plan","")
+                    expected_locations[lid].fixed_props = json.dumps(config.get("object_layout",{}),ensure_ascii=False)
+            if plan.voices != library.voices or plan.locations != expected_locations:
                 raise ValueError("Edit reusable voice/location profiles in the identity library, then rebuild direction")
             for shot in plan.shots:
                 scene = next(s for s in board if s.scene_id == shot.scene_id)
@@ -287,6 +334,12 @@ class AnimationDirector:
             state = self.load(required=True)
             self.validate_plan(state.plan)
             manifest = self.manager.load(self.project_id)
+            if manifest.world_project_id:
+                from .scene_production import SceneProduction
+                scenes = {shot.scene_id for shot in state.plan.shots}
+                service = SceneProduction(self.manager, self.project_id)
+                if not all(service.direction_approved(sid) for sid in scenes):
+                    raise ApprovalRequired("Review and approve direction for every scene first.")
             if not all(gate in manifest.asset_approvals for gate in ("characters", "backgrounds")):
                 raise ApprovalRequired("Approve character and background references before animation direction")
             state.plan_approval = ApprovalRecord(content_hash=self.direction_hash(state))
@@ -322,7 +375,8 @@ class AnimationDirector:
                 options={"output_path": str(work / "raw.wav"), "voice_profile": delivery.model_dump(mode="json")})
             outcome = "failed"
             try:
-                asset = tracked_call(self.manager, self.project_id, "animation:voice_preview", provider.generate, text, profile.voice_id, config)
+                asset = tracked_call(self.manager, self.project_id, "animation:voice_preview", provider.generate, text, profile.voice_id, config,
+                                     task_key=f"animation:voice_preview:{cid}:{emotion or 'neutral'}")
                 FFmpeg().run(["-i", asset.file_path, "-t", "5", "-c:a", "pcm_s16le", work / "preview.wav"])
                 duration = wav_duration(work / "preview.wav")
                 if duration < 3:
@@ -383,6 +437,8 @@ class AnimationDirector:
             return state
 
     def require_ready(self):
+        from .storyboard_asset_check import require
+        require(self.manager,self.project_id)
         state = self.load()
         if not state or not state.enabled:
             raise ApprovalRequired("Build the animation direction plan on Animations first")
@@ -400,6 +456,8 @@ class AnimationDirector:
         return state
 
     def modify_with_openai(self, instructions, expected):
+        from .storyboard_asset_check import require
+        require(self.manager,self.project_id)
         from .modification import modify_content
         from .animation_models import DirectionEdit
         with project_lock(self.path):

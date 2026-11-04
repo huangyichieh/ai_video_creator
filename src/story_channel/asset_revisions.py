@@ -1,4 +1,4 @@
-"""Select immutable saved reference images without regenerating or approving."""
+"""Select saved reference images by stable asset ID without regeneration."""
 import logging
 
 from .asset_models import AssetRecord
@@ -42,6 +42,8 @@ def apply_revision(engine, stage, subject, asset_id):
         task = next((t for t in tasks if t.stage == stage and t.subject == subject), None)
         if task is None:
             raise ValueError("This reference is not used by the current project")
+        if task.operation in ("panorama_view", "location_projection"):
+            raise ValueError("Apply and approve panorama master revisions, then reproject views to preserve shared world pixels.")
         selected = next((r for r in revisions(engine, stage, subject) if r.asset.asset_id == asset_id), None)
         if selected is None or not engine._intact(selected):
             raise ValueError("The selected revision is missing or modified; choose an intact saved revision")
@@ -59,6 +61,18 @@ def apply_revision(engine, stage, subject, asset_id):
         record.remote_job_id, record.remote_job_hash, record.remote_status = None, "", ""
         record.attempts = current.attempts if current else selected.attempts
         state.records[key] = record
+        if stage == "character_references":
+            state.character_approvals.pop(subject, None)
+        if stage == "backgrounds":
+            state.background_approvals.pop(subject.rsplit("__", 1)[0], None)
+            state.background_panorama_reviews.pop(subject.removesuffix("__panorama"), None)
+            if subject.endswith("__master"):
+                state.location_master_approvals.pop(subject.removesuffix("__master"), None)
+            if task.operation == "location_panorama":
+                lid, name = subject.rsplit("__", 1)
+                state.location_master_approvals.pop(lid+":"+name, None)
+                from .dual_panorama import invalidate_world
+                invalidate_world(engine, lid)
         state.consistency_report = {}
         manifest = engine.manager.load(engine.project_id)
         gates = ("characters", "backgrounds", "assets") if stage == "character_references" else ("backgrounds", "assets")

@@ -1,55 +1,25 @@
+from .dialog_ui import dialog
+from .error_report_ui import render_error, error_project, report_widget_key
+from .generation_ui import generation_button
 import json
 import difflib
 import re
-import tempfile
 from pathlib import Path
 
 import streamlit as st
 
 from .config import Settings
-from .costs import CostTracker
-from .modules import MODULES, STEPS, stage_title
+from .modules import MODULES, stage_title
 from .pipeline import Pipeline
 from .projects import ProjectManager
 from .models import ProviderConfig
 from .files import input_hash
 from .proofreading import TypoSuggestion, apply_suggestion, check_typos
-from .assets_ui import assets_page
 from .modification_ui import open_modification, show_modification
 from .action_labels import text_action_label
 from .ui_tasks import busy, collect, launch, preserve_page_widgets, task_status
 
-PAGES = ("Story & Settings", "Assets", "Animations", "Final", "Analytics")
-
-
-def stage_rows(project):
-    rows = []
-    for step in STEPS:
-        state = project.steps.get(step)
-        status = state.status if state else "pending"
-        if status in ("pending", "stale"):
-            dependencies_ready = all(project.steps.get(d) and project.steps[d].status == "succeeded"
-                                     for d in MODULES[step].dependencies)
-            if step in ("script", "storyboard", "prompts") and "story" not in project.approvals:
-                status = "Blocked: story approval"
-            elif step == "prompts" and "storyboard" not in project.approvals:
-                status = "Blocked: storyboard approval"
-            elif dependencies_ready:
-                status = "Ready" if status == "pending" else "Ready (outdated)"
-            else:
-                status = "Waiting for earlier stages"
-        else:
-            status = {"running": "▶ Running", "succeeded": "Completed", "failed": "Failed"}.get(status, status)
-        rows.append({"Stage": stage_title(step), "Status": status,
-                     "Revision": state.revision if state else 0, "Error": state.error or "" if state else ""})
-        if step == "review" and status == "Completed":
-            rows[-1]["Status"] = "Approved" if "story" in project.approvals else "Awaiting review decisions / approval"
-        if step == "storyboard":
-            approved = "storyboard" in project.approvals
-            ready = state is not None and state.status == "succeeded"
-            rows.append({"Stage": "AI Review (Storyboard)", "Status": "Approved" if approved else "Awaiting review decisions / approval" if ready else "Waiting",
-                         "Revision": None, "Error": ""})
-    return rows
+PAGES = ("World", "Assets", "Story/Episode", "Animations", "Final", "Analytics")
 
 
 def stage_files(pipeline, step):
@@ -152,7 +122,7 @@ def approval_files(pipeline, files, show_json, prefix):
                 show_stage_file(path, pipeline.path, f"{prefix}-{path.relative_to(pipeline.path).as_posix()}")
 
 
-@st.dialog("AI Review (Storyboard)", width="large", on_dismiss=dismiss_stage_browser)
+@dialog("AI Review (Storyboard)", width="large", on_dismiss=dismiss_stage_browser)
 def storyboard_approval_dialog(pipeline):
     project = pipeline.manager.load(pipeline.project_id)
     required = ("world", "characters", "story", "review", "script", "storyboard")
@@ -189,7 +159,7 @@ def storyboard_approval_dialog(pipeline):
         st.rerun()
 
 
-@st.dialog("AI Review (Story)", width="large", on_dismiss=dismiss_stage_browser)
+@dialog("AI Review (Story)", width="large", on_dismiss=dismiss_stage_browser)
 def ai_story_review_dialog(pipeline):
     project = pipeline.manager.load(pipeline.project_id)
     required = ("world", "characters", "story", "review")
@@ -200,9 +170,10 @@ def ai_story_review_dialog(pipeline):
     from .review_changes_ui import launch_review, run_story_review, review_editor
     from .action_labels import action_label
     sources_ready = all(project.steps.get(step) and project.steps[step].status == "succeeded" for step in ("world", "characters", "story"))
-    if st.button(action_label("AI Review (Story)", pipeline.config.provider, pipeline.config.model),
-                 key="run-ai-review-story", disabled=busy() or not sources_ready):
-        launch_review(pipeline, "story", lambda: run_story_review(pipeline))
+    from .generation_ui import review_button
+    review_button(action_label("AI Review (Story)",pipeline.config.provider,pipeline.config.model),
+        key="run-ai-review-story",disabled=busy() or not sources_ready,
+        on_click=lambda:launch_review(pipeline,"story",lambda:run_story_review(pipeline)))
     st.session_state.setdefault(f"page-tab-story-approval-{project.project_id}", "AI Review (Story)")
     if not ready:
         st.warning("Generate all stages through AI Review (Story) and resolve outdated or failed stages before approving.")
@@ -244,7 +215,7 @@ def ai_story_review_dialog(pipeline):
         st.rerun()
 
 
-@st.dialog("Stage data", width="large", on_dismiss=dismiss_stage_browser)
+@dialog("Stage data", width="large", on_dismiss=dismiss_stage_browser)
 def browse_stage(pipeline, step):
     project = pipeline.manager.load(pipeline.project_id)
     state = project.steps.get(step)
@@ -363,8 +334,7 @@ def browse_stage(pipeline, step):
     else:
         changes_summary.caption("No unsaved changes")
     save, revert, regenerate, modify, typo, close = st.columns([1.2, 1.5, 1.8, 1.8, 1.1, 0.7])
-    if modify.button(text_action_label("Modify", pipeline), key="modify-browser-openai", disabled=busy() or bool(changes) or step not in baseline):
-        open_modification(pipeline.project_id, "stage", step, expected=baseline[step])
+    modify.button(text_action_label("Modify", pipeline, step), key="modify-browser-openai", disabled=busy() or bool(changes) or step not in baseline, on_click=open_modification, args=(pipeline.project_id, "stage", step,), kwargs={'expected': baseline.get(step), 'rerun': False})
     if save.button("Save changes", key="save-browser-changes", type="primary", disabled=busy() or not changes):
         try:
             pipeline.edit_bundle(changes, expected=baseline)
@@ -372,9 +342,9 @@ def browse_stage(pipeline, step):
             st.session_state["browser-save-message"] = "Changes saved. Affected downstream stages and approvals have been invalidated."
             st.rerun()
         except (OSError, ValueError, RuntimeError) as exc:
-            st.error(str(exc))
-    if regenerate.button(text_action_label("Regenerate", pipeline), key="regenerate-browser-openai", disabled=busy() or bool(changes),
-                         help="Create and save a new version of this stage using OpenAI. Save or revert unsaved changes first. API usage is recorded."):
+            render_error(str(exc), project_path=error_project(locals()), key=report_widget_key('ui:343', locals()))
+    if generation_button(text_action_label("Regenerate", pipeline, step), key="regenerate-browser-openai", disabled=busy() or bool(changes),
+                         help="Create and save a new version of this stage using OpenAI. Save or revert unsaved changes first. API usage is recorded.", container=regenerate):
         def regenerated(_):
             clear_draft()
             st.session_state["active-stage-browser"] = (pipeline.project_id, step)
@@ -414,7 +384,7 @@ def browse_stage(pipeline, step):
             st.warning("The draft has changed since this check. Check typos again for current recommendations.")
         error = st.session_state.pop(f"{draft_key}-apply-error", None)
         if error:
-            st.error(error)
+            render_error(error, project_path=error_project(locals()), key=report_widget_key('ui:385', locals()))
         report = checked["report"]
         st.write(report["summary"])
         for index, recommendation in enumerate(report["suggestions"]):
@@ -436,199 +406,35 @@ def browse_stage(pipeline, step):
         st.rerun()
 
 
-def action(callback):
-    launch(callback, "Story operation")
-
-
-def new_project(manager):
-    st.header("New project")
-    with st.form("new_project"):
-        title = st.text_input("Title")
-        language = st.text_input("Content language", value=manager.settings.default_language)
-        st.write("Target length")
-        default_hours, remainder = divmod(manager.settings.default_target_duration_sec, 3600)
-        default_minutes, default_seconds = divmod(remainder, 60)
-        hours_column, minutes_column, seconds_column = st.columns(3)
-        hours = hours_column.number_input("Hours", min_value=0, value=default_hours, step=1)
-        minutes = minutes_column.number_input("Minutes", min_value=0, max_value=59, value=default_minutes, step=1)
-        seconds = seconds_column.number_input("Seconds", min_value=0, max_value=59, value=default_seconds, step=1)
-        duration = int(hours) * 3600 + int(minutes) * 60 + int(seconds)
-        outline = st.text_area("Story outline", height=250, placeholder="Describe the premise, characters, conflict, and ending…")
-        if st.form_submit_button("Create project", type="primary"):
-            try:
-                if duration == 0:
-                    raise ValueError("Target length must be at least one second.")
-                with tempfile.TemporaryDirectory() as directory:
-                    source = Path(directory) / "outline.md"
-                    source.write_text(outline, encoding="utf-8")
-                    project = manager.create(title, source, language=language, target_duration_sec=int(duration))
-                st.session_state["selected_project"] = project.project_id
-                st.session_state["creating_project"] = False
-                st.session_state["workspace_page"] = "Story & Settings"
-                st.rerun()
-            except (OSError, ValueError) as exc:
-                st.error(str(exc))
-
-
-
-def story_workflow(manager, project_id, pipeline, project):
-    from .outline_ui import outline_heading
-    outline_heading(manager, project_id, pipeline)
-    st.markdown(manager.read_outline(project_id))
-    next_step = project.current_step
-    next_label = stage_title(next_step)
-    is_review = next_step in ("story_review", "storyboard_review")
-    def open_review():
-        st.session_state["active-stage-browser"] = (project_id, "review" if next_step == "story_review" else "storyboard_approval")
-    generate_next = st.button(("Next stage: " if is_review else "Generate next stage: ") + next_label, key="generate-next-stage", type="primary",
-                              disabled=busy() or next_step not in (*STEPS, "story_review", "storyboard_review"),
-                              on_click=open_review if is_review else None)
-    generate_next = generate_next and not is_review
-    run_all = st.button("Generate / Resume pipeline", disabled=busy() or next_step == "complete",
-                        help="Automatic generation: runs remaining stages until review decisions and approval are required.")
-    st.caption("Generates one stage, then stops. Use each stage's Browse button to inspect, edit, or regenerate its result.")
-    if next_step in ("story_review", "storyboard_review"):
-        st.info("Open AI Review (Story), resolve every difference, then save and approve before continuing." if next_step == "story_review"
-                else "Open AI Review (Storyboard), resolve each difference or remain unchanged, then approve before continuing.")
-    elif next_step == "complete":
-        st.success("All stages are complete.")
-    progress_message = st.empty()
-    stage_cells = {}
-    browse_requested = None
-    stage_lookup = {stage_title(step): step for step in STEPS}
-    stage_lookup.update({"AI Review (Storyboard)": "storyboard"})
-    column_widths = [2.3, 2.8, 1, 4, 1.3]
-    with st.container(border=True):
-        headers = st.columns(column_widths)
-        for column, label in zip(headers, ("Stage", "Status", "Revision", "Error", "Browse")):
-            column.markdown(f"**{label}**")
-        for row in stage_rows(project):
-            st.divider()
-            name, status, revision, error, browse = st.columns(column_widths, vertical_alignment="center")
-            name.write(row["Stage"])
-            stage_cells[row["Stage"]] = (status.empty(), revision.empty(), error.empty())
-            step = stage_lookup[row["Stage"]]
-            is_approval = row["Stage"] == "AI Review (Storyboard)"
-            key = f"browse-{step}-approval" if is_approval else f"browse-{step}"
-            if browse.button("Browse", key=key, help=f"View {row['Stage'].lower()} data", use_container_width=True):
-                browse_requested = f"{step}_approval" if is_approval else step
-
-    def render_progress(manifest):
-        for row in stage_rows(manifest):
-            status_cell, revision_cell, error_cell = stage_cells[row["Stage"]]
-            status = row["Status"]
-            color = ("blue" if status == "▶ Running" else "green" if status in ("Completed", "Approved")
-                     else "red" if status == "Failed" else "orange" if "approval" in status.lower() else "gray")
-            status_cell.markdown(f":{color}[{status}]")
-            revision_cell.write(str(row["Revision"]) if row["Revision"] is not None else "—")
-            error_cell.caption(row["Error"] or "—")
-        running = [step.title() for step, state in manifest.steps.items() if state.status == "running"]
-        if running:
-            progress_message.info(f"Working on: {', '.join(running)}")
-        else:
-            progress_message.markdown(f"Next step:  \n**{stage_title(manifest.current_step)}**")
-
-    render_progress(project)
-    # Background work persists progress to disk, independently of this page's widgets.
-    pipeline.on_progress = None
-    if generate_next:
-        def generate_one():
-            result = pipeline.generate(next_step, force=project.steps.get(next_step) is not None and project.steps[next_step].status == "failed")
-            if next_step == "review":
-                from .review_changes import prepare_review
-                prepare_review(pipeline, "story")
-            return result
-        action(generate_one)
-    elif run_all:
-        def run_story_pipeline():
-            result = pipeline.run()
-            if result.current_step == "story_review":
-                from .review_changes import prepare_review
-                prepare_review(pipeline, "story")
-            return result
-        action(run_story_pipeline)
-    if browse_requested is not None:
-        if browse_requested in ("story_approval", "storyboard_approval"):
-            st.session_state.pop(f"approval-json-visible-{project_id}-{browse_requested}", None)
-        st.session_state["active-stage-browser"] = (project_id, browse_requested)
-    show_active_browser(pipeline)
-    st.write("Approved:", ", ".join(project.approved_steps) or "None")
-    st.code(str(pipeline.path), language=None)
-
-
-def outline_editor(manager, project_id, pipeline, project):
-    outline_key = f"outline-{project_id}"
-    report_key = f"outline-typos-{project_id}"
-    if outline_key not in st.session_state:
-        st.session_state[outline_key] = manager.read_outline(project_id)
-    outline = st.text_area("Edit outline", height=400, key=outline_key)
-    save_outline, check_outline, modify_outline = st.columns(3)
-    if modify_outline.button(text_action_label("Modify", pipeline), key="modify-outline-openai", disabled=busy() or outline != manager.read_outline(project_id) or not outline.strip()):
-        open_modification(project_id, "stage", "outline", expected=outline)
-    if save_outline.button("Save outline", type="primary", disabled=busy()):
-        action(lambda: pipeline.edit("outline", outline))
-    if check_outline.button("Check typos", key="check-outline-typos", disabled=busy() or not outline.strip(),
-                            help="Check only this outline draft with OpenAI; API usage is recorded."):
-        def checked_outline(report):
-            st.session_state[report_key] = {"draft_hash": input_hash({"outline": outline}), "report": report.model_dump()}
-        launch(lambda: check_typos(pipeline, {"outline": outline}, "outline"), "Outline typo check", checked_outline)
-    if outline != manager.read_outline(project_id):
-        st.caption("🟠 Modified — not saved")
-    checked = st.session_state.get(report_key)
-    if checked:
-        def apply_outline_recommendation(index):
-            stored = st.session_state[report_key]
-            current = {"outline": st.session_state[outline_key]}
-            if stored["draft_hash"] != input_hash(current):
-                return
-            try:
-                suggestion = TypoSuggestion.model_validate(stored["report"]["suggestions"][index])
-                text = apply_suggestion(current, suggestion)
-                st.session_state[outline_key] = text
-                stored["draft_hash"] = input_hash({"outline": text})
-                stored.setdefault("applied", []).append(index)
-            except ValueError as exc:
-                st.session_state[f"{report_key}-error"] = str(exc)
-
-        stale = checked["draft_hash"] != input_hash({"outline": outline})
-        if stale:
-            st.warning("The outline changed since this check. Check typos again for current recommendations.")
-        if f"{report_key}-error" in st.session_state:
-            st.error(st.session_state.pop(f"{report_key}-error"))
-        st.write(checked["report"]["summary"])
-        for index, suggestion in enumerate(checked["report"]["suggestions"]):
-            st.text(f"{suggestion['original']} → {suggestion['replacement']}")
-            st.write(suggestion["explanation"])
-            applied = index in checked.get("applied", [])
-            st.button("Applied" if applied else "Apply suggestion", key=f"apply-outline-typo-{index}",
-                      disabled=stale or applied, on_click=apply_outline_recommendation, args=(index,))
-        if not checked["report"]["suggestions"]:
-            st.info("No typos were identified.")
-    st.caption("Saving changes invalidates generated modules and approvals.")
-
-
 def _main():
+    from .project_deletion_ui import clear_deleted_state, open_delete, delete_dialog
+    clear_deleted_state()
+    from .episode_removal_ui import clear_removed_state
+    clear_removed_state()
     st.session_state.pop("external-project-busy", None)
     preserve_page_widgets()
-    collect()
     st.set_page_config(page_title="Story Studio", page_icon="📖", layout="wide")
+    from .dialog_ui import show_pending_dialog
+    show_pending_dialog()
+    collect()
     st.title("Story Studio")
     from .api_keys_ui import api_key_button
     api_key_button()
-    st.caption("From a story outline to a reviewed production plan")
+    st.caption("World → reusable Assets → Story/Episode → Animations → Final")
     if "browser-save-message" in st.session_state:
         st.success(st.session_state.pop("browser-save-message"))
     try:
         settings = Settings.load()
     except (OSError, ValueError) as exc:
-        st.error(str(exc))
+        render_error(str(exc), project_path=error_project(locals()), key=report_widget_key('ui:423', locals()))
         return
     with st.sidebar:
         st.header("Workspace")
         root = st.text_input("Project storage", value=str(settings.data_root))
         settings.data_root = Path(root)
         manager = ProjectManager(settings)
-        projects = manager.list_projects()
+        st.session_state["dialog-context-manager"] = manager
+        projects = [p for p in manager.list_projects() if not p.world_project_id]
         if st.button("＋ New project", use_container_width=True):
             st.session_state["creating_project"] = True
         if projects:
@@ -645,6 +451,11 @@ def _main():
                 st.session_state.pop("active-stage-browser", None)
                 st.session_state.pop("modify-target", None)
                 st.session_state.pop("voice-design-target", None)
+                st.session_state.pop("studio-modify-target", None)
+                st.session_state.pop("remove-character-target", None)
+                st.session_state.pop("remove-episode-target",None)
+                st.session_state.pop("floor-plan-preview-target", None)
+                st.session_state.pop("location-pair-revisions-target",None)
 
             project_id = st.selectbox("Project", ids, key="project-selector", on_change=select_project,
                                       format_func=lambda key: f"{titles[key]} · {key[:8]}")
@@ -652,6 +463,8 @@ def _main():
             if st.button("Open selected project", use_container_width=True):
                 st.session_state["creating_project"] = False
             project = next(item for item in projects if item.project_id == project_id)
+            st.button("Delete project", key="delete-project", use_container_width=True, disabled=busy(),
+                      on_click=open_delete, args=(project_id, project.title))
             previous = project.provider_config.get("llm")
             default_demo = previous.provider == "demo" if previous else settings.llm_provider == "demo"
         else:
@@ -675,11 +488,11 @@ def _main():
             box-shadow: 0 0 0 1px #60a5fa;
         }
         </style>""", unsafe_allow_html=True)
-        page = st.session_state.get("workspace_page", "Story & Settings")
-        if page == "Outline" and project_id:
-            st.session_state[f"page-tab-story-{project_id}"] = "Story outline"
+        page = st.session_state.get("workspace_page", "World")
+        if page in ("Story & Settings", "Outline", "Story", "Overview"):
+            page = "Story/Episode"
         if page not in PAGES:
-            page = "Story & Settings"
+            page = "World"
         st.session_state["workspace_page"] = page
 
         def choose_page(name):
@@ -687,18 +500,54 @@ def _main():
 
         with st.container(key="workspace-navigation"):
             for name in PAGES:
-                st.button(name, key="nav-" + ("story-settings" if name == "Story & Settings" else name.lower()), use_container_width=True,
+                st.button(name, key="nav-" + ("story-settings" if name == "Story/Episode" else name.lower()), use_container_width=True,
                           type="primary" if name == page else "secondary", on_click=choose_page, args=(name,))
-    if st.session_state.get("creating_project") or not project_id:
-        new_project(manager)
+    from .generation_preferences_ui import generation_preferences_button
+    generation_preferences_button(manager, None if st.session_state.get("creating_project") else project_id)
+    delete_target = st.session_state.get("delete-project-target")
+    if delete_target:
+        delete_dialog(manager, delete_target)
         return
+    if st.session_state.get("creating_project") or not project_id:
+        from .studio_ui import new_world
+        new_world(manager)
+        return
+    from .studio import WorldStudio, Episodes, approved_content
+    world_id = project_id
+    episodes = Episodes(manager, world_id).list()
+    episode_id = None
+    if episodes:
+        episode_ids = [p.project_id for p in episodes]
+        episode_titles = {p.project_id: p.title for p in episodes}
+        selected = st.session_state.get(f"selected-episode-{world_id}", episode_ids[0])
+        selected = selected if selected in episode_ids else episode_ids[0]
+        with st.sidebar:
+            key = f"episode-selector-{world_id}"
+            if st.session_state.get(key) != selected:
+                st.session_state[key] = selected
+            def select_episode():
+                from .episode_list_ui import select_episode as select_shared_episode
+                select_shared_episode(world_id,st.session_state[key])
+            episode_id = st.selectbox("Story / Episode", episode_ids, key=key, format_func=lambda pid: episode_titles[pid], on_change=select_episode)
+            st.session_state.setdefault(f"selected-episode-{world_id}", episode_id)
+    if page in ("Story/Episode", "Animations", "Final") and episode_id:
+        project_id = episode_id
+        if page == "Story/Episode" and not busy():
+            Episodes(manager, world_id).sync(episode_id)
     llm_config = ProviderConfig(provider="demo" if demo else "openai", model="demo-v1" if demo else settings.llm_model,
                                 options={"max_output_tokens": settings.llm_max_output_tokens})
+    st.session_state["generation-context-project"] = project_id
     pipeline = Pipeline(manager, project_id, llm_config=llm_config)
+    st.session_state["error-report-context-path"] = str(pipeline.path)
     task_status(pipeline.path)
     message = st.session_state.pop("workspace-task-message", None)
     if message:
-        getattr(st, message[0])(message[1])
+        if message[0] == "error":
+            context = st.session_state.pop("workspace-error-report-context", {})
+            render_error(message[1], project_path=context.get("path") or pipeline.path,
+                         task_key=context.get("task"), key="workspace-error-report")
+        else:
+            getattr(st, message[0])(message[1])
         if message[0] == "error" and st.session_state.get("outline-dialog-project") == project_id:
             st.session_state[f"outline-dialog-error-{project_id}"] = message[1]
         voice_target = st.session_state.get("voice-design-target")
@@ -714,24 +563,51 @@ def _main():
         st.session_state["external-project-busy"] = True
         external_project_status(pipeline.path)
     except (OSError, ValueError, RuntimeError) as exc:
-        st.error(str(exc))
+        render_error(str(exc), project_path=error_project(locals()), key=report_widget_key('ui:553', locals()))
         return
     if demo:
-        st.info("Demo mode uses fixed sample content to demonstrate the workflow. It does not generate a custom story or call an API.")
+        st.info("Story Demo uses fixed sample content. Asset generation has its own mode on Assets.")
     st.subheader(project.title)
     from .billing_ui import billing_panel
     billing_panel(project, detailed=page == "Analytics", manager=manager)
-    if page == "Story & Settings":
-        from .workspace_ui import story_settings
-        story_settings(manager, project_id, pipeline, project, story_workflow, outline_editor)
+    if page not in ("World", "Analytics") and not WorldStudio(manager, world_id).load().approval:
+        st.info("Approve World settings on World before continuing to other pages.")
+        return
+    if page == "World":
+        from .studio_ui import world_page
+        world_page(manager, world_id, Pipeline(manager, world_id, llm_config=llm_config))
     elif page == "Assets":
-        assets_page(manager, project_id)
+        from .studio_assets_ui import assets_page as shared_assets_page
+        shared_assets_page(manager, world_id, pipeline)
+    elif page == "Story/Episode":
+        from .studio_ui import episode_page
+        episode_page(manager, world_id, episode_id, pipeline if episode_id else None)
     elif page == "Animations":
-        from .animations_ui import animations_page
-        animations_page(manager, project_id)
+        from .episode_list_ui import animation_episode_list
+        animation_episode_list(manager,world_id,episode_id)
+        if not episode_id:
+            st.info("Create or select an episode on Story/Episode first.")
+        elif not all(approved_content(pipeline, name) for name in ("outline", "script", "prompts")) or not {"story", "storyboard"} <= project.approvals.keys():
+            from .storyboard_asset_check import available as check_assets_available
+            if check_assets_available(manager,episode_id):
+                from .animations_ui import animations_page
+                animations_page(manager,episode_id,check_assets_only=True)
+            else:
+                st.info("Approve this episode's Storyboard on Story/Episode to open Check assets. Approve Outline, Story, Script, Storyboard and Prompts before generating animations.")
+        else:
+            if not busy():
+                try:
+                    Episodes(manager, world_id).import_assets(episode_id)
+                except (OSError, ValueError, RuntimeError) as exc:
+                    st.warning(str(exc))
+            from .animations_ui import animations_page
+            animations_page(manager, project_id)
     elif page == "Final":
-        from .final_ui import final_page
-        final_page(manager, project_id)
+        if episode_id:
+            from .final_ui import final_page
+            final_page(manager, project_id)
+        else:
+            st.info("Create or select an episode before assembling Final.")
     elif page == "Analytics":
         from .workspace_ui import analytics_overview
         analytics_overview(manager, project_id)
@@ -747,7 +623,8 @@ def _main():
             with st.expander("API request IDs and story attribution"):
                 st.caption("Client request IDs are sent with future requests. Historical entries are assigned by your instruction; unavailable server IDs are left empty. Request IDs do not expose per-request billed costs.")
                 st.dataframe(requests, hide_index=True, width="stretch")
-        records = CostTracker(manager, project_id).records()
+        from .cost_estimates import project_usage_records
+        records = project_usage_records(manager, project_id)
         if records:
             from .cost_estimates import estimate_usage
             st.caption("Estimated USD uses recorded usage and rough rates. Unknown means no usable usage was recorded. Job polls are deduplicated in the project total.")
@@ -762,12 +639,22 @@ def _main():
     show_modification(manager, project_id)
     from .voice_design_ui import show_voice_design
     show_voice_design(manager, project_id)
+    from .studio_ui import show_modify
+    show_modify(manager)
+    remove_target = st.session_state.get("remove-character-target")
+    if remove_target:
+        from .character_removal_ui import removal_dialog
+        removal_dialog(manager, remove_target)
 
 
 def main():
+    from .windows_asyncio import install_windows_transport_cleanup
+    install_windows_transport_cleanup()
     try:
         _main()
     except PermissionError:
-        st.error("Project files cannot be accessed right now. Wait for the current save to finish, then retry. If this continues, check file access permissions or whether another application is holding the files open.")
+        render_error("Project files cannot be accessed right now. Wait for the current save to finish, then retry. If this continues, check file access permissions or whether another application is holding the files open.", project_path=error_project(locals()), key=report_widget_key('ui:634', locals()))
         if st.button("Retry loading project", key="retry-project-file-access"):
             st.rerun()
+    from .error_report_ui import show_error_report
+    show_error_report()

@@ -26,23 +26,44 @@ def readable_text(value: str) -> str:
                      for index, line in enumerate(lines))
 
 
-def storyboard_markdown(board: Storyboard) -> str:
+def performance_text(text, tags):
+    result = readable_text(text)
+    if tags:
+        result += "\n\n*Audio tags: " + " ".join("[" + tag.strip("[] ") + "]" for tag in tags) + "*"
+    return result
+
+
+def storyboard_markdown(board: Storyboard,locations=None) -> str:
+    from .location_labels import location_label
     sections = ["# Storyboard"]
     for scene in board.scenes:
+        from .sfx_duration import scene_settings
+        sfx = []
+        for cue in scene.sfx:
+            timing = scene_settings(scene,cue)
+            sfx.append(cue+(f" ({timing['duration']:g}s"+(", loop" if timing["loop"] else "")+")" if scene.sfx_timing else ""))
         sections.append(
             f"## {scene.order}. {scene.scene_id} ({scene.duration_sec:g}s)\n\n"
-            f"**Location:** {scene.location_id}  \n"
+            f"**Location:** {location_label(scene.location_id,locations or {},scene.target_area)}  \n"
             f"**Characters:** {', '.join(scene.character_ids) or 'None'}  \n"
             f"**Shot:** {scene.shot_type}  \n"
             f"**Camera:** {scene.camera_movement}\n\n"
             f"### Visual description\n\n{readable_text(scene.visual_description)}\n\n"
-            f"### Narration\n\n{readable_text(scene.narration)}\n\n"
-            f"### Dialogue\n\n" + ("\n\n".join(f"{line.character_id}: {readable_text(line.text)}" for line in scene.dialogue) or "None")
+            f"### Narration\n\n{performance_text(scene.narration, scene.narration_audio_tags)}\n\n"
+            f"### Dialogue\n\n" + ("\n\n".join(f"{line.character_id}: {performance_text(line.text, line.audio_tags)}" for line in scene.dialogue) or "None")
             + f"\n\n### Action\n\n{readable_text(scene.action)}\n\n"
             f"**BGM mood:** {scene.bgm_mood}  \n"
-            f"**SFX:** {', '.join(scene.sfx) or 'None'}  \n"
+            f"**BGM asset:** {scene.bgm_id or 'None'}  \n"
+            f"**SFX:** {', '.join(sfx) or 'None'}  \n"
             f"**Assets:** {', '.join(scene.asset_refs) or 'None'}  \n"
+            f"**Props:** {', '.join(scene.prop_ids) or 'None'}  \n"
             f"**Status:** {scene.status}")
+    if board.backgrounds or board.props or board.bgm or board.detail_backgrounds:
+        sections.append("## New reusable asset requirements")
+        sections.extend(f"- Background {item.location_id}: **{item.name}** — {item.description}" for item in board.backgrounds)
+        sections.extend(f"- Prop {item.prop_id}: **{item.title}** — {item.description}; modes: {', '.join(item.modes)}" for item in board.props)
+        sections.extend(f"- BGM {item.bgm_id}: **{item.title}** — {item.description}" for item in board.bgm)
+        sections.extend(f"- Detail background {item.location_id} · {item.detail_id}: **{item.area}** — {item.description}" for item in board.detail_backgrounds)
     return "\n\n".join(sections) + "\n"
 
 

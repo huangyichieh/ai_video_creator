@@ -21,6 +21,7 @@ class Performance(Model):
     line_index: int = Field(ge=0)
     character_id: Identifier
     text: str
+    audio_tags: list[str] = Field(default_factory=list)
     emotion: str = "neutral"
     intensity: float = Field(default=.5, ge=0, le=1, validation_alias=AliasChoices("intensity", "emotionIntensity", "emotion_intensity"))
     pace: float = Field(default=1, ge=.5, le=2)
@@ -71,6 +72,12 @@ class ShotPlan(Model):
     order: int = Field(ge=1)
     action: str
     camera: str
+    camera_start_angle: float | None = Field(default=None, allow_inf_nan=False)
+    camera_end_angle: float | None = Field(default=None, allow_inf_nan=False)
+    camera_pitch: float = Field(default=0,ge=-89,le=89,allow_inf_nan=False)
+    camera_fov: float = Field(default=70,gt=0,lt=170,allow_inf_nan=False)
+    target_area: str = ""
+    character_position: dict[str,float] | str | None = None
     start_pose: str = "Match approved scene image or the previous shot's cut frame"
     end_pose: str = "Finish the action naturally; preserve character proportions and costume"
     performance_video: str = ""
@@ -132,6 +139,7 @@ class AnimatedShot(Model):
 
 
 class AnimationState(Model):
+    scene_approvals: dict[str, ApprovalRecord] = Field(default_factory=dict)
     enabled: bool = True
     plan: AnimationPlan
     plan_approval: ApprovalRecord | None = None

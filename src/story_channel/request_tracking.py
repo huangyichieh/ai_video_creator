@@ -1,7 +1,8 @@
-"""Durable request IDs linked to Story Studio projects; no credentials or bodies."""
+"""Durable request IDs and separate sanitized, task-scoped failure reports."""
 from contextvars import ContextVar
 from datetime import datetime, timezone
 import json
+import logging
 import os
 import sys
 from threading import RLock
@@ -10,6 +11,7 @@ from uuid import uuid4
 
 _active = ContextVar("story_request_tracker", default=None)
 _lock = RLock()
+logger = logging.getLogger(__name__)
 
 
 def _append(path, item):
@@ -32,6 +34,10 @@ def _request(request):
            "created_at": datetime.now(timezone.utc).isoformat(),
            "method": request.method, "endpoint": request.url.path, "event": "sent"}
     tracker["requests"][client_id] = row
+    for name in ("authorization", "xi-api-key", "x-api-key"):
+        value = request.headers.get(name, "")
+        if value:
+            tracker["redactions"].add(value.split(None, 1)[-1] if name == "authorization" else value)
     _append(tracker["path"], row)
 
 
@@ -49,6 +55,15 @@ def _response(response):
         row["request_id"] = response.headers.get("request-id") or response.headers.get("x-sync-request-id")
     tracker["requests"][client_id] = row
     _append(tracker["path"], row)
+    content_type = response.headers.get("content-type", "")
+    if response.status_code >= 400 or "json" in content_type or "text/" in content_type:
+        response.read()
+        try:
+            body = response.json()
+        except ValueError:
+            body = response.text
+        tracker["responses"].append({**row, "provider": response.request.url.host,
+            "content_type": content_type, "body": body})
 
 
 def track_client(client):
@@ -62,12 +77,41 @@ def track_client(client):
                 transport.event_hooks[event].append(callback)
 
 
-def tracked_call(manager, story_id, step, callback, *args, **kwargs):
+def tracked_call(manager, story_id, step, callback, *args, task_key=None, validate_result=None, **kwargs):
     tracker = {"story_project_id": story_id, "step": step, "requests": {},
-               "path": manager.project_path(story_id) / "requests.jsonl"}
+               "path": manager.project_path(story_id) / "requests.jsonl", "responses": [], "redactions": set()}
+    project_path = manager.project_path(story_id)
+    report_task = task_key or step
     token = _active.set(tracker)
     try:
-        return callback(*args, **kwargs)
+        result = callback(*args, **kwargs)
+        if validate_result is not None:
+            result = validate_result(result)
+    except Exception as exc:
+        from .error_reports import record_failure
+        failed = [row for row in tracker["responses"] if row["status_code"] >= 400 or
+                  isinstance(row["body"], dict) and str(row["body"].get("status", "")).upper() in ("FAILED", "CANCELED", "CANCELLED", "ERROR")]
+        if not failed and tracker["responses"] and not any(row["event"] == "sent" for row in tracker["requests"].values()):
+            failed = tracker["responses"][-1:]
+        failed.extend({**row, "event": "no_response", "status_code": None, "body": None}
+                      for row in tracker["requests"].values() if row["event"] == "sent")
+        try:
+            record_failure(project_path, report_task, exc, failed, secrets=tracker["redactions"])
+        except (OSError, ValueError) as storage_error:
+            logger.warning("Could not save error report (%s)", type(storage_error).__name__)
+        try:
+            exc.error_report_project_path = str(project_path)
+            exc.error_report_task = report_task
+        except (AttributeError, TypeError):
+            pass
+        raise
+    else:
+        from .error_reports import clear_reports
+        try:
+            clear_reports(project_path, report_task)
+        except (OSError, ValueError) as storage_error:
+            logger.warning("Could not clear error report (%s)", type(storage_error).__name__)
+        return result
     finally:
         _active.reset(token)
         error_type = sys.exc_info()[0]

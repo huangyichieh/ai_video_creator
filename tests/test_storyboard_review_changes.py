@@ -39,11 +39,11 @@ def open_review(flow, monkeypatch):
     monkeypatch.setenv("STORY_DATA_ROOT", str(flow.manager.root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
     monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=20).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=20).run()
     assert app.button(key="generate-next-stage").label == "Next stage: AI Review (Storyboard)"
     app.button(key="generate-next-stage").click().run()
     assert not app.exception
-    from story_channel.ui import stage_rows
+    from legacy_pages import stage_rows
     assert any(row["Stage"] == "AI Review (Storyboard)" for row in stage_rows(flow.inspect()))
     return app
 

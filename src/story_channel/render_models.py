@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, field_validator
 
 from .models import Model, ApprovalRecord, GeneratedAsset
 
@@ -12,6 +12,8 @@ class RenderOptions(Model):
     video_model: Literal["sora-2", "sora-2-pro", "klingO3_pro"] = "sora-2"
     video_seconds: Literal[4, 8, 12] = 8
     video_size: Literal["1280x720", "720x1280"] = "1280x720"
+    delivery_formats: list[Literal["landscape_16_9", "portrait_9_16"]] = Field(default_factory=list)
+    portrait_safe_area: bool = False
     width: int = Field(default=1280, ge=160, le=3840)
     height: int = Field(default=720, ge=90, le=3840)
     fps: int = Field(default=24, ge=12, le=60)
@@ -28,8 +30,22 @@ class RenderOptions(Model):
     duck_music: bool = True
     normalize_voice: bool = True
 
+    @field_validator("delivery_formats")
+    @classmethod
+    def ordered_formats(cls, value):
+        return [name for name in ("landscape_16_9", "portrait_9_16") if name in value]
+
     @model_validator(mode="after")
     def even_size(self):
+        if len(self.delivery_formats) == 2:
+            object.__setattr__(self,"portrait_safe_area",True)
+        if self.delivery_formats:
+            portrait = self.delivery_formats == ["portrait_9_16"]
+            object.__setattr__(self,"video_size","720x1280" if portrait else "1280x720")
+            long_edge = max(self.width,self.height,320 if portrait else 160)
+            short_edge = round(long_edge*9/16/2)*2
+            object.__setattr__(self,"width",short_edge if portrait else long_edge)
+            object.__setattr__(self,"height",long_edge if portrait else short_edge)
         if self.width % 2 or self.height % 2:
             raise ValueError("Video width and height must be even numbers")
         if self.provider == "local" and self.generation_mode == "text":

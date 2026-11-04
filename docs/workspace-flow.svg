@@ -1,32 +1,41 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="370" viewBox="0 0 1280 370" role="img">
-<title>Story Studio workspace map</title><desc>Story and Settings to Assets to Animations to Final. Every page reports to Analytics.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="466" viewBox="0 0 1280 466" role="img">
+<title>Story Studio | Workspace map</title><desc>World and Assets are shared. Episodes keep independent approvals and production outputs.</desc>
 <rect width="100%" height="100%" fill="white"/>
-<text x="640" y="48" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="600">Story Studio | Workspace map</text>
-<a href="../README.md#story-settings"><rect x="28" y="100" width="279" height="107" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
-<text x="167" y="141" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600">Story &amp; Settings</text>
-<text x="167" y="181" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400">Plan and approve the story</text>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker></defs>
+<text x="640" y="46" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="600" fill="#0f172a">Story Studio | Workspace map</text>
+<text x="640" y="75" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400" fill="#475569">Blue: work  |  Orange: human approval  |  Green: workspace handoff</text>
+<path d="M420 164L450 164" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M830 164L860 164" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M1050 228L1050 266" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M860 330L830 330" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M450 330L420 330" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<a href="../README.md#world"><rect x="40" y="100" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
+<text x="230" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">1. World</text>
+<text x="230" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Review and approve shared canon</text>
 </a>
-<path d="M308 152h28l-9 -5m9 5l-9 5" fill="none" stroke="#64748b" stroke-width="3"/>
-<path d="M167 208v58l-5 -9m5 9l5 -9" fill="none" stroke="#34a887" stroke-width="2"/>
-<a href="../README.md#assets"><rect x="343" y="100" width="279" height="107" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
-<text x="482" y="141" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600">Assets</text>
-<text x="482" y="181" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400">Reusable identity and voices</text>
+<a href="../README.md#assets"><rect x="450" y="100" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
+<text x="640" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">2. Assets</text>
+<text x="640" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Characters, backgrounds, voices,</text>
+<text x="640" y="189" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">props</text>
 </a>
-<path d="M623 152h28l-9 -5m9 5l-9 5" fill="none" stroke="#64748b" stroke-width="3"/>
-<path d="M482 208v58l-5 -9m5 9l5 -9" fill="none" stroke="#34a887" stroke-width="2"/>
-<a href="../README.md#animations"><rect x="658" y="100" width="279" height="107" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
-<text x="797" y="141" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600">Animations</text>
-<text x="797" y="181" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400">Generate / approve scenes</text>
+<a href="../README.md#story-episode"><rect x="860" y="100" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
+<text x="1050" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">3. Story/Episode</text>
+<text x="1050" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Outline, Story, Script, Storyboard,</text>
+<text x="1050" y="189" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Prompts</text>
 </a>
-<path d="M938 152h28l-9 -5m9 5l-9 5" fill="none" stroke="#64748b" stroke-width="3"/>
-<path d="M797 208v58l-5 -9m5 9l5 -9" fill="none" stroke="#34a887" stroke-width="2"/>
-<a href="../README.md#final"><rect x="973" y="100" width="279" height="107" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
-<text x="1112" y="141" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600">Final</text>
-<text x="1112" y="181" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400">Assemble / approve video</text>
+<a href="../README.md#animations"><rect x="860" y="266" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
+<text x="1050" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">4. Animations</text>
+<text x="1050" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Approve individual animated scenes</text>
 </a>
-<path d="M1112 208v58l-5 -9m5 9l5 -9" fill="none" stroke="#34a887" stroke-width="2"/>
-<a href="../README.md#analytics"><rect x="28" y="267" width="1224" height="75" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
-<text x="640" y="299" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="24" font-weight="600">Analytics</text>
-<text x="640" y="328" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400">Generation usage, request attribution and separate billing reports across every workspace</text>
+<a href="../README.md#final"><rect x="450" y="266" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
+<text x="640" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">5. Final</text>
+<text x="640" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Assemble and approve the finished</text>
+<text x="640" y="355" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">video</text>
 </a>
+<a href="../README.md#analytics"><rect x="40" y="266" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
+<text x="230" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">6. Analytics</text>
+<text x="230" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Usage and billing across all</text>
+<text x="230" y="355" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">workspaces</text>
+</a>
+<text x="640" y="453" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#475569">World and Assets are shared. Episodes keep independent approvals and production outputs.</text>
 </svg>

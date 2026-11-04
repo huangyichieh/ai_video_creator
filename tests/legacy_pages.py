@@ -1,11 +1,295 @@
+"""Retired standalone page layouts, used only to regression-test reused components.
+
+The application uses studio_ui/studio_assets_ui. This fixture is never imported by it.
+"""
+import tempfile
+from story_channel.ui import *
+from story_channel.modules import STEPS, stage_title
+
+def stage_rows(project):
+    rows = []
+    for step in STEPS:
+        state = project.steps.get(step)
+        status = state.status if state else "pending"
+        if status in ("pending", "stale"):
+            dependencies_ready = all(project.steps.get(d) and project.steps[d].status == "succeeded"
+                                     for d in MODULES[step].dependencies)
+            if step in ("script", "storyboard", "prompts") and "story" not in project.approvals:
+                status = "Blocked: story approval"
+            elif step == "prompts" and "storyboard" not in project.approvals:
+                status = "Blocked: storyboard approval"
+            elif dependencies_ready:
+                status = "Ready" if status == "pending" else "Ready (outdated)"
+            else:
+                status = "Waiting for earlier stages"
+        else:
+            status = {"running": "▶ Running", "succeeded": "Completed", "failed": "Failed"}.get(status, status)
+        rows.append({"Stage": stage_title(step), "Status": status,
+                     "Revision": state.revision if state else 0, "Error": state.error or "" if state else ""})
+        if step == "review" and status == "Completed":
+            rows[-1]["Status"] = "Approved" if "story" in project.approvals else "Awaiting review decisions / approval"
+        if step == "storyboard":
+            approved = "storyboard" in project.approvals
+            ready = state is not None and state.status == "succeeded"
+            rows.append({"Stage": "AI Review (Storyboard)", "Status": "Approved" if approved else "Awaiting review decisions / approval" if ready else "Waiting",
+                         "Revision": None, "Error": ""})
+    return rows
+
+def action(callback):
+    launch(callback, "Story operation")
+
+
+def new_project(manager):
+    st.header("New project")
+    with st.form("new_project"):
+        title = st.text_input("Title")
+        language = st.text_input("Content language", value=manager.settings.default_language)
+        st.write("Target length")
+        default_hours, remainder = divmod(manager.settings.default_target_duration_sec, 3600)
+        default_minutes, default_seconds = divmod(remainder, 60)
+        hours_column, minutes_column, seconds_column = st.columns(3)
+        hours = hours_column.number_input("Hours", min_value=0, value=default_hours, step=1)
+        minutes = minutes_column.number_input("Minutes", min_value=0, max_value=59, value=default_minutes, step=1)
+        seconds = seconds_column.number_input("Seconds", min_value=0, max_value=59, value=default_seconds, step=1)
+        duration = int(hours) * 3600 + int(minutes) * 60 + int(seconds)
+        outline = st.text_area("Story outline", height=250, placeholder="Describe the premise, characters, conflict, and ending…")
+        if st.form_submit_button("Create project", type="primary"):
+            try:
+                if duration == 0:
+                    raise ValueError("Target length must be at least one second.")
+                with tempfile.TemporaryDirectory() as directory:
+                    source = Path(directory) / "outline.md"
+                    source.write_text(outline, encoding="utf-8")
+                    project = manager.create(title, source, language=language, target_duration_sec=int(duration))
+                st.session_state["selected_project"] = project.project_id
+                st.session_state["creating_project"] = False
+                st.session_state["workspace_page"] = "Story & Settings"
+                st.rerun()
+            except (OSError, ValueError) as exc:
+                st.error(str(exc))
+
+
+def story_workflow(manager, project_id, pipeline, project):
+    from legacy_outline_ui import outline_heading
+    outline_heading(manager, project_id, pipeline)
+    st.markdown(manager.read_outline(project_id))
+    next_step = project.current_step
+    next_label = stage_title(next_step)
+    is_review = next_step in ("story_review", "storyboard_review")
+    def open_review():
+        st.session_state["active-stage-browser"] = (project_id, "review" if next_step == "story_review" else "storyboard_approval")
+    generate_next = st.button(("Next stage: " if is_review else "Generate next stage: ") + next_label, key="generate-next-stage", type="primary",
+                              disabled=busy() or next_step not in (*STEPS, "story_review", "storyboard_review"),
+                              on_click=open_review if is_review else None)
+    generate_next = generate_next and not is_review
+    run_all = st.button("Generate / Resume pipeline", disabled=busy() or next_step == "complete",
+                        help="Automatic generation: runs remaining stages until review decisions and approval are required.")
+    st.caption("Generates one stage, then stops. Use each stage's Browse button to inspect, edit, or regenerate its result.")
+    if next_step in ("story_review", "storyboard_review"):
+        st.info("Open AI Review (Story), resolve every difference, then save and approve before continuing." if next_step == "story_review"
+                else "Open AI Review (Storyboard), resolve each difference or remain unchanged, then approve before continuing.")
+    elif next_step == "complete":
+        st.success("All stages are complete.")
+    progress_message = st.empty()
+    stage_cells = {}
+    browse_requested = None
+    stage_lookup = {stage_title(step): step for step in STEPS}
+    stage_lookup.update({"AI Review (Storyboard)": "storyboard"})
+    column_widths = [2.3, 2.8, 1, 4, 1.3]
+    with st.container(border=True):
+        headers = st.columns(column_widths)
+        for column, label in zip(headers, ("Stage", "Status", "Revision", "Error", "Browse")):
+            column.markdown(f"**{label}**")
+        for row in stage_rows(project):
+            st.divider()
+            name, status, revision, error, browse = st.columns(column_widths, vertical_alignment="center")
+            name.write(row["Stage"])
+            stage_cells[row["Stage"]] = (status.empty(), revision.empty(), error.empty())
+            step = stage_lookup[row["Stage"]]
+            is_approval = row["Stage"] == "AI Review (Storyboard)"
+            key = f"browse-{step}-approval" if is_approval else f"browse-{step}"
+            if browse.button("Browse", key=key, help=f"View {row['Stage'].lower()} data", use_container_width=True):
+                browse_requested = f"{step}_approval" if is_approval else step
+
+    def render_progress(manifest):
+        for row in stage_rows(manifest):
+            status_cell, revision_cell, error_cell = stage_cells[row["Stage"]]
+            status = row["Status"]
+            color = ("blue" if status == "▶ Running" else "green" if status in ("Completed", "Approved")
+                     else "red" if status == "Failed" else "orange" if "approval" in status.lower() else "gray")
+            status_cell.markdown(f":{color}[{status}]")
+            revision_cell.write(str(row["Revision"]) if row["Revision"] is not None else "—")
+            error_cell.caption(row["Error"] or "—")
+        running = [step.title() for step, state in manifest.steps.items() if state.status == "running"]
+        if running:
+            progress_message.info(f"Working on: {', '.join(running)}")
+        else:
+            progress_message.markdown(f"Next step:  \n**{stage_title(manifest.current_step)}**")
+
+    render_progress(project)
+    # Background work persists progress to disk, independently of this page's widgets.
+    pipeline.on_progress = None
+    if generate_next:
+        def generate_one():
+            result = pipeline.generate(next_step, force=project.steps.get(next_step) is not None and project.steps[next_step].status == "failed")
+            if next_step == "review":
+                from story_channel.review_changes import prepare_review
+                prepare_review(pipeline, "story")
+            return result
+        action(generate_one)
+    elif run_all:
+        def run_story_pipeline():
+            result = pipeline.run()
+            if result.current_step == "story_review":
+                from story_channel.review_changes import prepare_review
+                prepare_review(pipeline, "story")
+            return result
+        action(run_story_pipeline)
+    if browse_requested is not None:
+        if browse_requested in ("story_approval", "storyboard_approval"):
+            st.session_state.pop(f"approval-json-visible-{project_id}-{browse_requested}", None)
+        st.session_state["active-stage-browser"] = (project_id, browse_requested)
+    show_active_browser(pipeline)
+    st.write("Approved:", ", ".join(project.approved_steps) or "None")
+    st.code(str(pipeline.path), language=None)
+
+
+def outline_editor(manager, project_id, pipeline, project):
+    outline_key = f"outline-{project_id}"
+    report_key = f"outline-typos-{project_id}"
+    if outline_key not in st.session_state:
+        st.session_state[outline_key] = manager.read_outline(project_id)
+    outline = st.text_area("Edit outline", height=400, key=outline_key)
+    save_outline, check_outline, modify_outline = st.columns(3)
+    if modify_outline.button(text_action_label("Modify", pipeline), key="modify-outline-openai", disabled=busy() or outline != manager.read_outline(project_id) or not outline.strip()):
+        open_modification(project_id, "stage", "outline", expected=outline)
+    if save_outline.button("Save outline", type="primary", disabled=busy()):
+        action(lambda: pipeline.edit("outline", outline))
+    if check_outline.button("Check typos", key="check-outline-typos", disabled=busy() or not outline.strip(),
+                            help="Check only this outline draft with OpenAI; API usage is recorded."):
+        def checked_outline(report):
+            st.session_state[report_key] = {"draft_hash": input_hash({"outline": outline}), "report": report.model_dump()}
+        launch(lambda: check_typos(pipeline, {"outline": outline}, "outline"), "Outline typo check", checked_outline)
+    if outline != manager.read_outline(project_id):
+        st.caption("🟠 Modified — not saved")
+    checked = st.session_state.get(report_key)
+    if checked:
+        def apply_outline_recommendation(index):
+            stored = st.session_state[report_key]
+            current = {"outline": st.session_state[outline_key]}
+            if stored["draft_hash"] != input_hash(current):
+                return
+            try:
+                suggestion = TypoSuggestion.model_validate(stored["report"]["suggestions"][index])
+                text = apply_suggestion(current, suggestion)
+                st.session_state[outline_key] = text
+                stored["draft_hash"] = input_hash({"outline": text})
+                stored.setdefault("applied", []).append(index)
+            except ValueError as exc:
+                st.session_state[f"{report_key}-error"] = str(exc)
+
+        stale = checked["draft_hash"] != input_hash({"outline": outline})
+        if stale:
+            st.warning("The outline changed since this check. Check typos again for current recommendations.")
+        if f"{report_key}-error" in st.session_state:
+            st.error(st.session_state.pop(f"{report_key}-error"))
+        st.write(checked["report"]["summary"])
+        for index, suggestion in enumerate(checked["report"]["suggestions"]):
+            st.text(f"{suggestion['original']} → {suggestion['replacement']}")
+            st.write(suggestion["explanation"])
+            applied = index in checked.get("applied", [])
+            st.button("Applied" if applied else "Apply suggestion", key=f"apply-outline-typo-{index}",
+                      disabled=stale or applied, on_click=apply_outline_recommendation, args=(index,))
+        if not checked["report"]["suggestions"]:
+            st.info("No typos were identified.")
+    st.caption("Saving changes invalidates generated modules and approvals.")
+
+
+def show_json(path):
+    try:
+        st.json(json.loads(path.read_text(encoding="utf-8-sig")))
+    except (OSError, ValueError) as exc:
+        st.warning(f"Cannot display saved JSON: {exc}")
+
+
+def story_settings(manager, project_id, pipeline, project, workflow, outline):
+    tabs = st.tabs(["Story workflow", "Project settings", "World / Canon", "Characters", "Story outline",
+                    "Script / Dialogue", "Storyboard", "Performance intent", "Generation settings & Providers"],
+                   key=f"page-tab-story-{project_id}", on_change="rerun")
+    with tabs[0]:
+        workflow(manager, project_id, pipeline, project)
+    with tabs[1]:
+        baseline = json.dumps({"title": project.title, "language": project.language,
+                               "targetDurationSec": project.target_duration_sec}, ensure_ascii=False, indent=2)
+        prefix = f"project-setting-{project_id}-"
+        st.session_state.setdefault(prefix + "title", project.title)
+        st.session_state.setdefault(prefix + "language", project.language)
+        title = st.text_input("Project title", key=prefix + "title", disabled=busy())
+        language = st.text_input("Language", key=prefix + "language", disabled=busy())
+        hours, minutes, seconds = st.columns(3)
+        h, remainder = divmod(project.target_duration_sec, 3600)
+        m, sec = divmod(remainder, 60)
+        for name, value in (("hours", h), ("minutes", m), ("seconds", sec)):
+            st.session_state.setdefault(prefix + name, value)
+        h = hours.number_input("Hours", min_value=0, step=1, key=prefix + "hours", disabled=busy())
+        m = minutes.number_input("Minutes", min_value=0, max_value=59, step=1, key=prefix + "minutes", disabled=busy())
+        sec = seconds.number_input("Seconds", min_value=0, max_value=59, step=1, key=prefix + "seconds", disabled=busy())
+        updated = json.dumps({"title": title, "language": language, "targetDurationSec": h*3600+m*60+sec}, ensure_ascii=False, indent=2)
+        if updated != baseline:
+            st.caption("Modified — not saved")
+        save, revert = st.columns(2)
+        if save.button("Save project settings", disabled=busy() or updated == baseline):
+            launch(lambda: pipeline.edit_bundle({"project": updated}, expected={"project": baseline}), "Saving project settings")
+        def reset():
+            for name, value in (("title", project.title), ("language", project.language), ("hours", project.target_duration_sec//3600),
+                                ("minutes", project.target_duration_sec//60 % 60), ("seconds", project.target_duration_sec % 60)):
+                st.session_state[prefix + name] = value
+        revert.button("Revert project settings", disabled=busy() or updated == baseline, on_click=reset)
+        st.caption("Changing project inputs invalidates dependent story content and approvals.")
+    from story_channel.modules import MODULES
+    for tab, step in ((tabs[2], "world"), (tabs[3], "characters"), (tabs[5], "script"), (tabs[6], "storyboard")):
+        with tab:
+            markdown = pipeline.path / ("character_bible.md" if step == "characters" else f"{step}.md")
+            if markdown.exists():
+                from story_channel.ui import script_line_breaks
+                text = markdown.read_text(encoding="utf-8")
+                st.markdown(script_line_breaks(text) if step == "script" else text)
+            path = pipeline.path / MODULES[step].filename
+            if path.exists():
+                show_json(path)
+            else:
+                st.info("Generate this content from Story workflow first.")
+            def browse(name=step):
+                st.session_state["active-stage-browser"] = (project_id, name)
+            st.button("Browse / edit " + step.title(), key=f"story-category-{step}", on_click=browse)
+            if step == "world":
+                st.caption("World defines the current project's canon. Cross-project canon versioning is not implemented yet.")
+    with tabs[4]:
+        outline(manager, project_id, pipeline, project)
+    with tabs[7]:
+        path = pipeline.path / "performance_intent.json"
+        if path.exists():
+            show_json(path)
+        st.caption("Script generation exports performance intent. Edit and approve the production performance plan on Animations → 2. Direction & performance.")
+    with tabs[8]:
+        st.markdown("**Story generation**")
+        st.caption("Minimum balanced stack: GPT-6.1 Sol → Gen-4 references → Kling O3 Pro; selected Act-Two close-ups; Eleven v4 voices / ElevenLabs SFX; FFmpeg composition. Runway and ElevenLabs keys are available under the top-right key icon.")
+        mode_key = f"project-setting-{project_id}-generation-mode"
+        mode = st.selectbox("Generation mode", ("OpenAI", "Demo (offline)"), key=mode_key, disabled=busy())
+        st.text_input("LLM model", key=f"project-setting-{project_id}-llm-model", disabled=busy() or mode.startswith("Demo"))
+        st.caption("Asset provider mode and shared style are on Assets; video, lip-sync and sound provider settings are on Animations. These story preferences apply to the next generation call.")
+        st.json({key: value.model_dump(mode="json", by_alias=True) for key, value in project.provider_config.items()})
+        st.caption("Default models and generation limits come from config / STORY_* environment settings. Credentials stay in the local .env file.")
+
+
 import streamlit as st
 from threading import Event
 from uuid import uuid4
 
-from .assets import AssetPipeline
-from .character_assets_ui import character_cards, asset_cards
-from .ui_tasks import busy, launch, launch_assets
-from .media_utils import file_hash
+from story_channel.assets import AssetPipeline
+from story_channel.character_assets_ui import character_cards, asset_cards
+from story_channel.ui_tasks import busy, launch, launch_assets
+from story_channel.media_utils import file_hash
 
 
 def assets_page(manager, project_id, *, animations=False):
@@ -33,7 +317,7 @@ def assets_page(manager, project_id, *, animations=False):
         st.info("Offline demo creates labelled placeholder images, silent voice tracks, and sample timestamps. Use OpenAI for production assets.")
     st.caption("Voices are AI-generated. Subtitle timings come from recorded audio; visual identity is confirmed during human review.")
     if not animations:
-        from .identity_ui import identity_library
+        from story_channel.identity_ui import identity_library
         identity_library(manager, project_id, engine=engine, state=state)
     manifest = manager.load(project_id)
     characters_ready = bool(manifest.steps.get("characters") and manifest.steps["characters"].status == "succeeded")
@@ -95,11 +379,11 @@ def assets_page(manager, project_id, *, animations=False):
         next_title = state.next_stage.replace("_", " ").title()
         runnable = state.next_stage in allowed_stages and engine.can_generate(state.next_stage, state)
     else:
-        from .assets_workflow import next_assets_action
+        from story_channel.assets_workflow import next_assets_action
         workflow = next_assets_action(engine, state)
         next_title, runnable = workflow.title, workflow.runnable
         st.info(workflow.detail)
-        from .identity import IdentityManager
+        from story_channel.identity import IdentityManager
         library = IdentityManager(manager, project_id).load()
         if library and st.session_state.get(f"identity-draft-{project_id}", library.model_dump_json(by_alias=True, indent=2)) != library.model_dump_json(by_alias=True, indent=2):
             runnable = False
@@ -141,7 +425,7 @@ def assets_page(manager, project_id, *, animations=False):
             for record in state.records.values() if record.stage in allowed_stages]
     regenerable = {f"{record.stage}:{record.subject}" for record in state.records.values() if record.stage in allowed_stages}
     if not animations:
-        from .assets_status import assets_status_rows
+        from story_channel.assets_status import assets_status_rows
         task = st.session_state.get("workspace-task")
         rows = assets_status_rows(engine, state, running_label=task["label"] if task and busy() else "")
         rows = [{"Regenerate": f"{row['Stage']}:{row['Subject']}" in checked_records if f"{row['Stage']}:{row['Subject']}" in regenerable else None, **row} for row in rows]
@@ -182,7 +466,7 @@ def assets_page(manager, project_id, *, animations=False):
         launch(callback, "Asset operation")
 
     if (next_clicked or run_clicked) and not animations:
-        from .assets_workflow import generate_assets_page
+        from story_channel.assets_workflow import generate_assets_page
         samples = {key.removeprefix(f"animation-preview-text-{project_id}-"): value
                    for key, value in st.session_state.items() if key.startswith(f"animation-preview-text-{project_id}-")}
         event = Event()
@@ -230,14 +514,14 @@ def assets_page(manager, project_id, *, animations=False):
                 st.markdown(markdown.read_text(encoding="utf-8"))
             st.json(state.consistency_report)
     else:
-        tabs = st.tabs(["Character Reference Packs", "Locations / Backgrounds", "Costumes", "Props", "Voice Profiles",
+        tabs = st.tabs(["Character References", "Locations / Backgrounds", "Costumes", "Props", "Voice Profiles",
                         "Style References", "Music / SFX library", "Reusable generated images"],
                        key=f"page-tab-assets-{project_id}", on_change="rerun")
         with tabs[0]:
             character_cards(engine, state)
         with tabs[1]:
             asset_cards(engine, state, "backgrounds")
-        from .identity import IdentityManager
+        from story_channel.identity import IdentityManager
         library = IdentityManager(manager, project_id).load()
         for tab, name in ((tabs[2], "costumes"), (tabs[3], "props")):
             with tab:
@@ -250,7 +534,7 @@ def assets_page(manager, project_id, *, animations=False):
         with tabs[4], st.container(key="asset-voice-configuration", border=highlight_voices):
             if highlight_voices:
                 st.info("Review the red/green approval status above each character. Listen to and approve every required voice; save any missing character or narrator Voice IDs here.")
-            from .animation_ui import character_voices, narrator_voice_editor
+            from story_channel.animation_ui import character_voices, narrator_voice_editor
             character_voices(manager, project_id, demo=engine.demo)
             narrator_voice_editor(manager, project_id, demo=engine.demo)
         if highlight_voices:
@@ -288,7 +572,7 @@ def assets_page(manager, project_id, *, animations=False):
                 else:
                     st.info("No additional identity style notes are saved. Use the shared style prompt and reference images above.")
         with tabs[6]:
-            from .workspace_ui import audio_library
+            from story_channel.workspace_ui import audio_library
             audio_library(manager, project_id)
         with tabs[7]:
             for record in state.records.values():

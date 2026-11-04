@@ -1,0 +1,102 @@
+"""Tracked reusable ElevenLabs audio before the animation prerequisites gate."""
+import json
+import math
+from decimal import Decimal
+from uuid import uuid4
+
+from .files import input_hash,atomic_write
+from .storyboard_asset_check import document,check,bind_sound
+
+
+def task_key(kind,key):
+    return "storyboard_audio:"+kind+":"+key
+
+
+def status(manager,project_id,kind,key):
+    return document(manager.project_path(project_id),"storyboard_audio_tasks.json").get(task_key(kind,key),{})
+
+
+def _status(manager,project_id,kind,key,value,**details):
+    from .locking import project_lock
+    path = manager.project_path(project_id)
+    with project_lock(path):
+        data = document(path,"storyboard_audio_tasks.json")
+        data[task_key(kind,key)] = {"status":value,**details}
+        atomic_write(path/"storyboard_audio_tasks.json",json.dumps(data,ensure_ascii=False,indent=2))
+
+
+def generate(manager,project_id,kind,key,prompt,duration,*,loop=False,provider=None):
+    from .error_reports import record_failure,clear_reports,redact
+    path = manager.project_path(project_id)
+    task = task_key(kind,key)
+    _status(manager,project_id,kind,key,"running")
+    try:
+        result = _generate(manager,project_id,kind,key,prompt,duration,loop,provider)
+    except Exception as exc:
+        if getattr(exc,"error_report_task",None) != task:
+            record_failure(path,task,exc)
+        _status(manager,project_id,kind,key,"failed",error=redact(str(exc)))
+        raise
+    _status(manager,project_id,kind,key,"succeeded")
+    clear_reports(path,task)
+    return result
+
+
+def _generate(manager,project_id,kind,key,prompt,duration,loop,provider):
+    from .effect_providers import ElevenLabsSFXProvider,ElevenLabsMusicProvider
+    from .pipeline import Pipeline
+    from .models import ProviderConfig,UsageRecord
+    from .costs import CostTracker
+    from .request_tracking import tracked_call,request_fields
+    from .rendering import RenderPipeline
+    if kind not in ("SFX","BGM") or isinstance(duration,bool) or not isinstance(duration,(int,float)) or not math.isfinite(duration):
+        raise ValueError("Choose a valid audio kind and duration.")
+    if not (.5 <= duration <= 30 if kind == "SFX" else 3 <= duration <= 600):
+        raise ValueError("SFX must be 0.5–30 seconds; music must be 3–600 seconds.")
+    from .audio_assets import requirement,publish
+    row = requirement(manager,project_id,kind,key)
+    if not row:
+        raise ValueError("This audio requirement is no longer used by the storyboard.")
+    if not prompt.strip():
+        raise ValueError("Enter an audio generation prompt.")
+    path = manager.project_path(project_id)
+    filename = "storyboard_bgm.json" if kind == "BGM" else "storyboard_sfx.json"
+    previous = input_hash(document(path,filename).get("entries",{}).get(key))
+    from .check_asset_sync import shared_audio_hash
+    shared_expected = shared_audio_hash(manager,project_id,kind,key)
+    if kind == "SFX":
+        from .sound_prompts import sound_prompt
+        prompt = sound_prompt(Pipeline(manager,project_id),{"prompt":prompt,"group":"cues","loop":loop})
+        model = "eleven_text_to_sound_v2"
+        provider = provider or ElevenLabsSFXProvider(timeout=manager.settings.llm_timeout_sec)
+    else:
+        from .style_rules import audio_rules,pipeline_rules
+        rules = audio_rules(pipeline_rules(Pipeline(manager,project_id)),kind="sound")
+        prompt = prompt.strip()+"\nInstrumental background music for a story video; no vocals, spoken words or lyrics. "+rules
+        model = "music_v2"
+        provider = provider or ElevenLabsMusicProvider(timeout=max(300,manager.settings.llm_timeout_sec))
+    output = path/"audio"/"storyboard_generated"/uuid4().hex/"audio.mp3"
+    config = ProviderConfig(provider="elevenlabs",model=model,options={"output_path":str(output),"duration":duration,"loop":loop})
+    outcome = "failed"
+    asset = None
+    try:
+        asset = tracked_call(manager,project_id,task_key(kind,key),provider.generate,prompt,config,task_key=task_key(kind,key))
+        outcome = "succeeded"
+    finally:
+        usage = dict(getattr(provider,"last_usage",{}) or {})
+        rate = manager.settings.music_cost_per_minute if kind == "BGM" else manager.settings.sfx_cost_per_second
+        cost = Decimal(str(usage.get("audio_seconds",0)))*(rate or Decimal(0))/(60 if kind == "BGM" else 1)
+        CostTracker(manager,project_id).record(UsageRecord(provider="elevenlabs",model=model,step=task_key(kind,key),
+            audio_seconds=usage.get("audio_seconds",0),cost=cost,estimated_cost=cost,
+            billing_units=usage.get("billing_units"),billing_unit=usage.get("billing_unit"),provider_job_id=usage.get("provider_job_id"),
+            pricing_known=rate is not None and "audio_seconds" in usage,outcome=outcome,**request_fields(usage)))
+    # Validate the resulting media before publishing a usable binding.
+    asset.cost = cost
+    source = f"Generated by ElevenLabs/{model}; request and usage recorded. Commercial use subject to ElevenLabs plan and terms: https://elevenlabs.io/music-terms" if kind == "BGM" else "Generated by ElevenLabs sound effects; commercial use subject to ElevenLabs plan and terms."
+    relative = RenderPipeline(manager,project_id).import_audio(output.read_bytes(),"audio.mp3",source)
+    if requirement(manager,project_id,kind,key) is None:
+        raise ValueError("Storyboard requirement changed while generating. The generated audio was retained.")
+    publish(manager,project_id,kind,key,row["Asset"],relative,expected=previous,shared_expected=shared_expected,
+        provenance={"provider":"elevenlabs","model":model,"prompt":prompt,"duration":duration,"loop":loop,
+            "generatedAsset":asset.model_dump(mode="json",by_alias=True)})
+    return relative

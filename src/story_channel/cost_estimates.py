@@ -40,6 +40,8 @@ def estimate_usage(record, settings):
         fallback = "40" if any(word in model for word in ("turbo", "flash")) else "80"
         return record.audio_characters * rate(field, fallback if provider == "elevenlabs" else "15") / 1000000, "Speech rate per character"
     if record.audio_seconds:
+        if provider == "elevenlabs" and model.startswith("music_"):
+            return amount(record.audio_seconds)/60*rate("music_cost_per_minute",".30"),"Rough ElevenLabs music allowance per minute"
         if any(abs(record.audio_seconds * sample_rate * width - 4294967294) <= 8
                for sample_rate in (16000, 24000, 44100, 48000) for width in (2, 4)):
             return None, "Invalid legacy streaming-WAV duration; excluded"
@@ -51,16 +53,24 @@ def estimate_usage(record, settings):
     return (Decimal(0), "Recorded zero cost") if record.pricing_known else (None, "Usage unavailable")
 
 
+def project_usage_records(manager, project_id):
+    from .costs import CostTracker
+    project = manager.load(project_id)
+    ids = {project_id}
+    if project.workflow_version == "world_episode" and not project.world_project_id:
+        ids.update(p.project_id for p in manager.list_projects() if p.world_project_id == project_id)
+    return [record for pid in ids for record in CostTracker(manager, pid).records()
+            if not record.story_project_id or record.story_project_id in ids]
+
+
 def project_cost_estimate(manager, project_id):
     from .costs import CostTracker
     entries, seen = [], set()
     jobs = {}
-    for record in CostTracker(manager, project_id).records():
+    for record in project_usage_records(manager, project_id):
         if record.record_id in seen:
             continue
         seen.add(record.record_id)
-        if record.story_project_id and record.story_project_id != project_id:
-            continue
         value, basis = estimate_usage(record, manager.settings)
         entry = {"record": record, "amount": value, "basis": basis}
         if record.provider_job_id:

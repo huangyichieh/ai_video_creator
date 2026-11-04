@@ -76,10 +76,10 @@ def test_failure_keeps_tracking_even_without_server_id(tmp_path,timeout):
 
 def test_parallel_media_requests_keep_story_relations_separate(tmp_path):
     manager=ProjectManager(Settings(data_root=tmp_path/'data'))
-    projects=[create(manager,tmp_path,str(i)) for i in range(5)]
+    projects=[create(manager,tmp_path,str(i)) for i in range(6)]
     image=io.BytesIO()
     Image.new('RGB',(32,32),'blue').save(image,'PNG')
-    barrier=Barrier(5)
+    barrier=Barrier(2)  # OpenAI's app pool now admits two requests at once.
     def handler(request):
         barrier.wait(timeout=10)
         client_id=request.headers['X-Client-Request-Id']

@@ -35,7 +35,7 @@ def test_asset_page_generate_approve_preview_and_finish(tmp_path, monkeypatch):
     monkeypatch.setenv("STORY_DATA_ROOT", str(manager.root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
     monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=30).run()
     app.button(key="nav-assets").click().run()
     assert not app.exception
     app.button(key="generate-next-asset-stage").click().run()
@@ -48,7 +48,7 @@ def test_asset_page_generate_approve_preview_and_finish(tmp_path, monkeypatch):
     app.checkbox[0].check().run()
     app.button(key="approve-assets-backgrounds").click().run()
     assert widget(app.button, "Generate assets until review").disabled
-    assert {tab.label for tab in app.tabs} == {"Character Reference Packs", "Locations / Backgrounds", "Costumes", "Props", "Voice Profiles", "Style References", "Music / SFX library", "Reusable generated images"}
+    assert {tab.label for tab in app.tabs} == {"Character References", "Locations / Backgrounds", "Costumes", "Props", "Voice Profiles", "Style References", "Music / SFX library", "Reusable generated images"}
     from story_channel.identity import IdentityManager
     from story_channel.animation import AnimationDirector
     from test_ui import finish_background
@@ -75,7 +75,7 @@ def test_asset_page_generate_approve_preview_and_finish(tmp_path, monkeypatch):
     app.button(key=f"animation-workflow-run-{project.project_id}").click().run()
     finish_background(app)
     assert not app.exception
-    assert "3. Voices & input review" in {tab.label for tab in app.tabs}
+    assert "Voices & input" in {tab.label for tab in app.tabs}
     assert app.json
     widget(app.checkbox, "I reviewed these assets and approve continuing").check().run()
     app.button(key="approve-assets-assets").click().run()
@@ -109,7 +109,7 @@ def test_early_character_assets_ui(tmp_path, monkeypatch):
     monkeypatch.setenv("STORY_DATA_ROOT", str(manager.root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
     monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=30).run()
     app.button(key="nav-assets").click().run()
     assert not app.exception
     assert not app.button(key="generate-next-asset-stage").disabled
@@ -128,7 +128,7 @@ def test_all_asset_cards_have_sources_and_persistent_styles(tmp_path, monkeypatc
     monkeypatch.setenv("STORY_DATA_ROOT", str(manager.root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
     monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=30).run()
     app.button(key="nav-assets").click().run()
     engine = AssetPipeline(manager, project.project_id)
     tasks = engine.tasks(engine.load())
@@ -137,6 +137,7 @@ def test_all_asset_cards_have_sources_and_persistent_styles(tmp_path, monkeypatc
         app.button(key=page).click().run()
         task = next(t for t in tasks if t.stage == stage)
         prefix = f"asset-editor-{stage}-{project.project_id}-{task.subject}"
+        app.toggle(key=prefix + "-edit-json").set_value(True).run()
         assert app.text_area(key=prefix + "-draft")
         assert app.button(key=f"retry-asset-{task.key}").label == "Generate asset"
         assert app.button(key=f"retry-asset-{task.key}").disabled
@@ -191,7 +192,7 @@ def test_table_checkbox_regenerates_selected_asset(tmp_path, monkeypatch):
     monkeypatch.setenv("STORY_DATA_ROOT", str(manager.root))
     monkeypatch.setenv("STORY_LLM_PROVIDER", "demo")
     monkeypatch.setenv("STORY_ASSET_PROVIDER", "demo")
-    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+    app = AppTest.from_file(str(Path(__file__).parent / "legacy_component_app.py"), default_timeout=30).run()
     app.button(key="nav-assets").click().run()
     assert app.button(key="regenerate-selected-assets").disabled
     key = f"production-selection-{project.project_id}-False"

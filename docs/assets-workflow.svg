@@ -1,37 +1,78 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="466" viewBox="0 0 1280 466" role="img">
-<title>Assets | Reusable references and voices</title><desc>After auditions, continue on Animations for scene production. Voice auditions require the storyboard and plan.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="798" viewBox="0 0 1280 798" role="img">
+<title>Assets | Reusable world-owned library</title><desc>No complete-assets stage. Unused drafts never block an episode; actual scene references are checked when used.</desc>
 <rect width="100%" height="100%" fill="white"/>
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker></defs>
-<text x="640" y="46" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="600" fill="#0f172a">Assets | Reusable references and voices</text>
+<text x="640" y="46" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="30" font-weight="600" fill="#0f172a">Assets | Reusable world-owned library</text>
 <text x="640" y="75" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="400" fill="#475569">Blue: work  |  Orange: human approval  |  Green: workspace handoff</text>
 <path d="M420 164L450 164" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
 <path d="M830 164L860 164" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
 <path d="M1050 228L1050 266" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
 <path d="M860 330L830 330" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
 <path d="M450 330L420 330" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
-<a href="../README.md#story-settings"><rect x="40" y="100" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
-<text x="230" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">1. From Story &amp; Settings</text>
-<text x="230" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Characters ready; later gates apply</text>
+<path d="M230 394L230 432" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M420 496L450 496" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M830 496L860 496" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M1050 560L1050 598" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M860 662L830 662" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<path d="M450 662L420 662" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+<a href="../README.md#world"><rect x="40" y="100" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
+<text x="230" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">1. Approved World</text>
+<text x="230" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Canon guides every reusable asset</text>
 </a>
 <a href="../README.md#assets"><rect x="450" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
-<text x="640" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">2. Identity + shared style</text>
-<text x="640" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Locations, costumes, props; 3 images</text>
+<text x="640" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">2. Style rules</text>
+<text x="640" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Shared rules and optional style</text>
+<text x="640" y="189" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">image</text>
 </a>
-<a href="../README.md#assets"><rect x="860" y="100" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
-<text x="1050" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">3. Character references</text>
-<text x="1050" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Generate and approve appearance</text>
+<a href="../README.md#assets"><rect x="860" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="1050" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">3. Character References</text>
+<text x="1050" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Text or image -&gt; model sheet; Voice;</text>
+<text x="1050" y="189" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Costumes</text>
 </a>
-<a href="../README.md#assets"><rect x="860" y="266" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
-<text x="1050" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">4. Background references</text>
-<text x="1050" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">After Prompts: generate and approve</text>
+<a href="../README.md#assets"><rect x="860" y="266" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="1050" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">4. Location layout</text>
+<text x="1050" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Floor plan + objects -&gt; camera view</text>
+<text x="1050" y="355" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">regions</text>
 </a>
-<a href="../README.md#animations"><rect x="450" y="266" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
-<text x="640" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">5. Animations: build plan</text>
-<text x="640" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Prepare direction, then return here</text>
+<a href="../README.md#assets"><rect x="450" y="266" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="640" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">5. North / south masters</text>
+<text x="640" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Visible camera regions; 2560x1440;</text>
+<text x="640" y="355" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">two outputs</text>
 </a>
 <a href="../README.md#assets"><rect x="40" y="266" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
-<text x="230" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">6. Assets: auditions</text>
-<text x="230" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Approve voices + library; continue</text>
+<text x="230" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">6. Approve master pair</text>
+<text x="230" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Review layout, objects and shared</text>
+<text x="230" y="355" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">style</text>
 </a>
-<text x="640" y="453" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#475569">After auditions, continue on Animations for scene production. Voice auditions require the storyboard and plan.</text>
+<a href="../README.md#assets"><rect x="40" y="432" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="230" y="467" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">7. Optional local details</text>
+<text x="230" y="498" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Stable area IDs; linked objects;</text>
+<text x="230" y="521" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">upload or AI</text>
+</a>
+<a href="../README.md#animations"><rect x="450" y="432" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="640" y="467" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">8. Location resolver</text>
+<text x="640" y="498" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Nearest master + relevant details;</text>
+<text x="640" y="521" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">1-3 refs</text>
+</a>
+<a href="../README.md#assets"><rect x="860" y="432" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="1050" y="467" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">9. SFX and Props (optional)</text>
+<text x="1050" y="498" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Libraries and mode visuals; no</text>
+<text x="1050" y="521" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">required gate</text>
+</a>
+<a href="../README.md#assets"><rect x="860" y="598" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+<text x="1050" y="633" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">10. Style check (optional)</text>
+<text x="1050" y="664" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">New/updated targets; unchanged art</text>
+<text x="1050" y="687" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">is context</text>
+</a>
+<a href="../README.md#assets"><rect x="450" y="598" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
+<text x="640" y="633" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">11. Assets prerequisite done</text>
+<text x="640" y="664" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">At least 1 character + 1 background</text>
+<text x="640" y="687" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">exist</text>
+</a>
+<a href="../README.md#story-episode"><rect x="40" y="598" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
+<text x="230" y="633" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">12. Reuse in episodes</text>
+<text x="230" y="664" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Copy approved media; independent</text>
+<text x="230" y="687" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">state</text>
+</a>
+<text x="640" y="785" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#475569">No complete-assets stage. Unused drafts never block an episode; actual scene references are checked when used.</text>
 </svg>

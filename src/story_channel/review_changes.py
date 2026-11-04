@@ -323,6 +323,12 @@ def save_review(pipeline, kind, decisions, *, expected, approval_expected=None):
         pipeline._event(f"ai_review_{kind}", "resolved", decisions=len(decisions), content_hash=session.saved_hash)
         if kind == "story":
             return pipeline._approve("story", "Approved through AI Review (Story); all differences explicitly applied or reverted")
+        manifest = pipeline.manager.load(pipeline.project_id)
+        if manifest.world_project_id:
+            from .models import ApprovalRecord
+            manifest.content_approvals["script"] = ApprovalRecord(content_hash=input_hash(pipeline.artifact("script").model_dump(mode="json", by_alias=True)),
+                note="Script decisions approved through AI Review (Storyboard)")
+            pipeline.manager.save(manifest)
         # A current Storyboard reviewed here stays completed even when accepted
         # dialogue edits changed Script. Prompts retain their invalidation rules.
         manifest = pipeline.manager.load(pipeline.project_id)
