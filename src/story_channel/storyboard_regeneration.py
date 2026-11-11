@@ -14,6 +14,7 @@ def regenerate(pipeline,scene_id,expected,instructions="",*,provider=None):
     if original is None:
         raise ValueError("This storyboard scene no longer exists.")
     context = pipeline._context("storyboard")
+    context["manualStoryboardEdit"] = True
     catalog = inventory(pipeline)
     context["storyboard"] = board.model_dump(mode="json",by_alias=True)
     context["availableBackgrounds"] = catalog["backgrounds"]

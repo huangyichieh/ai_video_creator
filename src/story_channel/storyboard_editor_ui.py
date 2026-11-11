@@ -13,15 +13,44 @@ def lines(text):
     return [value.strip() for value in text.splitlines() if value.strip()]
 
 
-def render(pipeline,*,generated_details_only=False):
+@st.fragment(run_every=.5)
+def refresh_saved_view(key,target=None):
+    """Refresh only on a later timer tick, after the parent tab tree is complete."""
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+    from streamlit.runtime.scriptrunner_utils.script_run_context import ThreadState
+    context = get_script_run_ctx()
+    if (context and ThreadState.get().fragment_id in (context.fragment_ids_this_run or [])
+            and st.session_state.pop(key,False)):
+        if target:
+            from .asset_view_ui import refresh_target
+            refresh_target(target)
+        else:
+            st.rerun(scope="app")
+
+
+def render(pipeline,*,generated_details_only=False,scene_id=None,refresh_target_key=None,auto_save=False):
+    if auto_save and scene_id is None:
+        raise ValueError("Automatic approval is only available in a single scene-image editor.")
     source = (pipeline.path/"scenes.json").read_text(encoding="utf-8-sig")
     from .creative import Storyboard
     board = Storyboard.model_validate_json(source).model_dump(mode="json",by_alias=True)
     baseline = input_hash(board)
     regeneration = None
     catalog = inventory(pipeline)
-    prefix = f"storyboard-fields-{pipeline.project_id}-{input_hash(source)[:12]}-"
+    scope = "-scene-"+scene_id if scene_id is not None else ""
+    selected = next((scene for scene in board["scenes"] if scene["sceneId"] == scene_id),None) if scene_id else None
+    if scene_id is not None and selected is None:
+        st.info("This scene no longer exists. Reload the scene list.")
+        return False
+    prefix = f"storyboard-fields-{pipeline.project_id}{scope}-{input_hash(selected if selected is not None else source)[:12]}-"
     cache_prefix = "studio-draft-"+prefix
+    save_request_key = "storyboard-save-request-"+pipeline.project_id+scope
+    save_result_key = "storyboard-save-result-"+pipeline.project_id+scope
+    save_refresh_key = "storyboard-save-refresh-"+pipeline.project_id+scope
+    # A normal page rerun already reloads canonical data; no timer is needed.
+    st.session_state.pop(save_refresh_key,None)
+    if message := st.session_state.pop(save_result_key,None):
+        getattr(st,message[0])(message[1])
     def table(name,rows,columns,**kwargs):
         key = prefix+name
         cache = st.session_state.setdefault(cache_prefix+name,{"base":rows,"last":rows})
@@ -31,33 +60,58 @@ def render(pipeline,*,generated_details_only=False):
             key=key,disabled=busy(),width="stretch",**kwargs)
         cache["last"] = edited.fillna("").to_dict("records")
         return edited
-    st.caption("Edit each scene below. Existing asset references and new/pending requirements have distinct labels. Saving reopens storyboard review and invalidates affected prompts and animations; it does not approve content.")
-    with st.expander("New reusable asset requirements",expanded=False):
-        st.markdown(":orange[New assets / pending generation] — define these before selecting them in a scene. Saving registers them on Assets, including BGM.")
-        for field,id_field,columns in (
-            ("backgrounds","locationId",["locationId","name","description"]),
-            ("props","propId",["propId","title","description","modes"]),
-            ("bgm","bgmId",["bgmId","title","description"])):
-            st.markdown("**"+{"backgrounds":"Backgrounds","props":"Props","bgm":"BGM"}[field]+"**")
-            rows = [{**item,**({"modes":"\n".join(item["modes"])} if field == "props" else {})} for item in board[field]]
-            edited = table(field,rows,columns)
-            items = []
-            for row in edited.fillna("").to_dict("records"):
-                if not any(str(value).strip() for value in row.values()):
-                    continue
-                if field == "props":
-                    row["modes"] = lines(row["modes"]) or ["default"]
-                items.append(row)
-            board[field] = items
+    st.caption(("Changes save and approve automatically when committed. Generation prompts update immediately; affected images and animations need regeneration."
+        if auto_save else ("Edit this scene's canonical storyboard. Other scenes are kept. " if scene_id else "Edit each scene below. ")+
+        "Existing asset references and new/pending requirements have distinct labels. Saving reopens storyboard review and invalidates affected prompts and animations; it does not approve content."))
+    st.html('''<style>
+    [class*="st-key-storyboard-fields-"] summary [data-testid="stMarkdownContainer"],
+    [class*="st-key-storyboard-fields-"] summary [data-testid="stMarkdownContainer"] p {
+        white-space: normal; overflow-wrap: anywhere; overflow: visible;
+        text-overflow: clip; -webkit-line-clamp: unset;
+    }
+    [class*="st-key-storyboard-fields-"] summary [data-testid="stMarkdownContainer"] p {
+        margin: 0; padding: 0; line-height: 1.4;
+    }
+    [class*="st-key-storyboard-fields-"][class*="insert-gap-"] button {
+        min-height: 1.6rem; padding: 0.1rem 0.3rem;
+    }
+    [class*="st-key-storyboard-fields-"][class*="insert-gap-"] button p {font-size: 0.8rem;}
+    </style>''')
+    if scene_id is None:
+        with st.expander("New reusable asset requirements",expanded=False):
+            st.markdown(":orange[New assets / pending generation] — define these before selecting them in a scene. Saving registers them on Assets, including BGM.")
+            for field,id_field,columns in (
+                ("backgrounds","locationId",["locationId","name","description"]),
+                ("props","propId",["propId","title","description","modes"]),
+                ("bgm","bgmId",["bgmId","title","description"])):
+                st.markdown("**"+{"backgrounds":"Backgrounds","props":"Props","bgm":"BGM"}[field]+"**")
+                rows = [{**item,**({"modes":"\n".join(item["modes"])} if field == "props" else {})} for item in board[field]]
+                edited = table(field,rows,columns)
+                items = []
+                for row in edited.fillna("").to_dict("records"):
+                    if not any(str(value).strip() for value in row.values()):
+                        continue
+                    if field == "props":
+                        row["modes"] = lines(row["modes"]) or ["default"]
+                    items.append(row)
+                board[field] = items
+    else:
+        for field in ("backgrounds","props","bgm"):
+            if cached_rows := st.session_state.get(cache_prefix+field):
+                board[field] = [{**item,**({"modes":lines(item["modes"])} if field == "props" else {})}
+                    for item in cached_rows["last"]]
     assets = {field:{**catalog[field],**{item.get(id_field,""):item for item in board[field] if item.get(id_field)}}
         for field,id_field in (("backgrounds","locationId"),("props","propId"),("bgm","bgmId"))}
     if cache_prefix+"detail-backgrounds" not in st.session_state:
         board["detailBackgrounds"] = reconcile_detail_requirements(board,catalog)
-    with st.expander("New detail-background requirements",expanded=False):
-        st.caption("Requirements follow scene background selections. Unused declarations are removed when backgrounds change or the storyboard is saved; shared assets and images are retained.")
-        columns = ["locationId","detailId","area","description"]
-        edited = table("detail-backgrounds",board.get("detailBackgrounds",[]),columns)
-        board["detailBackgrounds"] = [row for row in edited.fillna("").to_dict("records") if any(str(value).strip() for value in row.values())]
+    if scene_id is None:
+        with st.expander("New detail-background requirements",expanded=False):
+            st.caption("Requirements follow scene background selections. Unused declarations are removed when backgrounds change or the storyboard is saved; shared assets and images are retained.")
+            columns = ["locationId","detailId","area","description"]
+            edited = table("detail-backgrounds",board.get("detailBackgrounds",[]),columns)
+            board["detailBackgrounds"] = [row for row in edited.fillna("").to_dict("records") if any(str(value).strip() for value in row.values())]
+    elif cached_rows := st.session_state.get(cache_prefix+"detail-backgrounds"):
+        board["detailBackgrounds"] = cached_rows["last"]
     details = {key:value for key,value in catalog.get("detail_backgrounds",{}).items()
         if not generated_details_only or key in catalog["available"]["backgrounds"]}
     if not generated_details_only:
@@ -93,13 +147,60 @@ def render(pipeline,*,generated_details_only=False):
         st.session_state[cache_prefix+"detail-backgrounds"] = {"base":rows,"last":rows}
         st.session_state.pop(prefix+"detail-backgrounds",None)
 
-    for scene in board["scenes"]:
+    def add_scene_requirement(scene_id,kind,description,title):
+        from .storyboard_scene_assets import add_requirement,FIELDS
+        data,identity = add_requirement(board,catalog,scene_id,kind,description,title)
+        board.update(data)
+        field,_,_ = FIELDS[kind]
+        rows = [{**item,**({"modes":"\n".join(item["modes"])} if field == "props" else {})} for item in board[field]]
+        st.session_state[cache_prefix+field] = {"base":rows,"last":rows}
+        st.session_state.pop(prefix+field,None)
+        scene = next(item for item in board["scenes"] if item["sceneId"] == scene_id)
+        scene_key = prefix+scene_id+"-"
+        if kind == "Background":
+            st.session_state[scene_key+"location"] = identity
+            for suffix in ("targetArea-select","targetArea"):
+                st.session_state.pop(scene_key+suffix,None)
+            refresh_requirements()
+        elif kind == "Prop":
+            st.session_state[scene_key+"props"] = scene["propIds"]
+        else:
+            st.session_state[scene_key+"bgm"] = identity
+        return identity
+
+    def insertion_control(position):
+        def request_insertion():
+            if input_hash(Storyboard.model_validate(board).model_dump(mode="json",by_alias=True)) != baseline:
+                st.session_state[prefix+"split-warning"] = "Save or revert current storyboard edits before adding a scene."
+                return
+            from .storyboard_scene_insertion_ui import open_insertion
+            open_insertion(pipeline,position,source)
+        with st.container(horizontal=True,horizontal_alignment="right",gap=None,key=prefix+f"insert-gap-{position}"):
+            st.button("add scene in between",type="tertiary",key=prefix+f"insert-scene-{position}",
+                disabled=busy(),on_click=request_insertion)
+
+    from .media_utils import timestamp
+    elapsed = 0.0
+    for position,scene in enumerate(board["scenes"]):
         sid = scene["sceneId"]
+        if scene_id is not None and sid != scene_id:
+            elapsed += scene["durationSec"]
+            continue
+        if scene_id is None:
+            insertion_control(position)
         key = prefix+sid+"-"
-        with st.expander(sid+" · "+scene["shotType"],expanded=False):
+        action = " ".join(st.session_state.get(key+"action",scene["action"]).split())
+        shot_type = st.session_state.get(key+"shotType",scene["shotType"])
+        seconds = st.session_state.get(key+"duration",scene["durationSec"])
+        start = timestamp(elapsed,vtt=True).removesuffix(".000")
+        elapsed += seconds
+        end = timestamp(elapsed,vtt=True).removesuffix(".000")
+        title = f"{sid} · {shot_type} · {start} ~ {end} ({seconds:g}s)"+("  \n"+action if action else "")
+        panel = st.expander(title,expanded=False,key=key+"panel") if scene_id is None else st.container()
+        with panel:
             st.caption("Scene ID: "+sid+" · "+scene["status"]+" (managed by the pipeline)")
             order,duration = st.columns(2)
-            scene["order"] = order.number_input("Order",min_value=1,value=scene["order"],step=1,key=key+"order",disabled=busy(),persist_state="session")
+            scene["order"] = order.number_input("Order",min_value=1,value=scene["order"],step=1,key=key+"order",disabled=busy() or scene_id is not None,persist_state="session")
             scene["durationSec"] = duration.number_input("Duration (seconds)",min_value=0.1,value=float(scene["durationSec"]),key=key+"duration",disabled=busy(),persist_state="session")
             def changed_background(scene=scene,key=key):
                 select_background(scene,st.session_state[key+"location"],details)
@@ -115,6 +216,8 @@ def render(pipeline,*,generated_details_only=False):
                 format_func=lambda value:value+" ("+catalog["characters"][value]+")",disabled=busy(),persist_state="session")
             scene["propIds"] = selection("props","Props",scene["propIds"],key+"props",multiple=True)
             scene["bgmId"] = selection("bgm","BGM",scene.get("bgmId"),key+"bgm",optional=True)
+            from .storyboard_scene_assets_ui import render as scene_asset_controls
+            scene_asset_controls(sid,key,add_scene_requirement,auto_save=auto_save)
             pending = [label(field,value) for field,values in (("backgrounds",[chosen_background]),("props",scene["propIds"]),("bgm",[scene["bgmId"]]))
                 for value in values if value and value not in catalog["available"][field]]
             if pending:
@@ -166,6 +269,8 @@ def render(pipeline,*,generated_details_only=False):
                 scene["characterPosition"] = {**point,**{axis:st.number_input("Position "+axis,value=float(point.get(axis,0)),key=key+"position-"+axis,disabled=busy(),persist_state="session") for axis in ("x","y")}}
             else:
                 scene["characterPosition"] = None
+            if scene_id is not None:
+                continue
             instructions = st.text_input("Regeneration prompt (optional)",key=key+"regeneration-prompt",disabled=busy(),
                 placeholder="For example: use a closer shot and emphasize the character's hesitation.",persist_state="session")
             from .generation_ui import generation_button
@@ -173,6 +278,29 @@ def render(pipeline,*,generated_details_only=False):
             if generation_button(text_action_label("Regenerate scene",pipeline,"storyboard"),key=key+"regenerate-scene",disabled=busy(),
                 help="Regenerates this saved scene's visual treatment. Other scenes, timing, background selection and approved dialogue are preserved. Save or revert any edits first."):
                 regeneration = (sid,instructions)
+            def request_scene_split(sid=sid):
+                # This callback sees the completed draft from the prior render.
+                # Opening during rendering interrupts the surrounding tab tree.
+                if input_hash(Storyboard.model_validate(board).model_dump(mode="json",by_alias=True)) != baseline:
+                    st.session_state[prefix+"split-warning"] = "Save or revert current storyboard edits before splitting a scene."
+                    return
+                from .storyboard_split_ui import open_split
+                open_split(pipeline,sid,source)
+            def request_scene_removal(sid=sid):
+                if input_hash(Storyboard.model_validate(board).model_dump(mode="json",by_alias=True)) != baseline:
+                    st.session_state[prefix+"split-warning"] = "Save or revert current storyboard edits before removing a scene."
+                    return
+                from .storyboard_scene_removal_ui import open_removal
+                open_removal(pipeline,sid,source)
+            with st.container(horizontal=True):
+                st.button("Split scene",key=key+"split-scene",disabled=busy(),on_click=request_scene_split)
+                st.button("Remove scene",key=key+"remove-scene",disabled=busy() or len(board["scenes"]) == 1,
+                    help="Keep at least one scene." if len(board["scenes"]) == 1 else "Remove this scene and renumber the remaining scenes.",
+                    on_click=request_scene_removal)
+    if scene_id is None:
+        insertion_control(len(board["scenes"]))
+    if message := st.session_state.pop(prefix+"split-warning",None):
+        st.warning(message)
     if regeneration:
         if input_hash(Storyboard.model_validate(board).model_dump(mode="json",by_alias=True)) != baseline:
             st.warning("Save or revert current storyboard edits before regenerating a scene.")
@@ -181,15 +309,59 @@ def render(pipeline,*,generated_details_only=False):
             from .ui_tasks import launch
             sid,instructions = regeneration
             launch(lambda:regenerate(pipeline,sid,source,instructions),"Regenerating storyboard scene "+sid)
-    controls = st.container(horizontal=True)
-    if controls.button("Save storyboard changes",key=prefix+"save",disabled=busy()):
+    if auto_save:
         try:
-            save(pipeline,board,source)
-            st.rerun()
+            changed = input_hash(Storyboard.model_validate(board).model_dump(mode="json",by_alias=True)) != baseline
+        except ValueError:
+            changed = True
+        if changed:
+            try:
+                from .storyboard_editor import save_scene
+                with st.spinner("Saving and approving…"):
+                    save_scene(pipeline,scene_id,board,source,auto_approve=True)
+            except (ValueError,OSError,RuntimeError) as exc:
+                st.error("Changes were not saved and approved: "+str(exc))
+                def discard():
+                    for key in list(st.session_state):
+                        if key.startswith((prefix,cache_prefix)):
+                            del st.session_state[key]
+                st.button("Revert changes",key=prefix+"revert",disabled=busy(),on_click=discard)
+                return True
+            st.success("Saved and approved.")
+            st.session_state[save_refresh_key] = True
+            refresh_saved_view(save_refresh_key,refresh_target_key)
+        return False
+    controls = st.container(horizontal=True)
+    def request_save():
+        st.session_state[save_request_key] = {"expected":source}
+    saving = save_request_key in st.session_state
+    controls.button("Saving…" if saving else "Save storyboard changes",key=prefix+"save",
+        disabled=busy() or saving,on_click=request_save)
+    if request := st.session_state.pop(save_request_key,None):
+        try:
+            # Collect this run's widget values first, including text committed
+            # by the same click, rather than saving a previous callback draft.
+            with st.spinner("Saving storyboard changes…"):
+                if scene_id is None:
+                    save(pipeline,board,request["expected"])
+                else:
+                    from .storyboard_editor import save_scene
+                    save_scene(pipeline,scene_id,board,request["expected"])
         except (ValueError,OSError,RuntimeError) as exc:
-            st.error(str(exc))
+            message = ("error",str(exc))
+        else:
+            message = ("success","Storyboard changes saved. Review and approve the updated storyboard before animating.")
+        st.session_state[save_result_key] = message
+        st.session_state[save_refresh_key] = True
+        getattr(st,message[0])(message[1])
     def reset():
         for key in list(st.session_state):
             if key.startswith((prefix,cache_prefix)):
                 del st.session_state[key]
-    controls.button("Revert changes",key=prefix+"revert",disabled=busy(),on_click=reset)
+    controls.button("Revert changes",key=prefix+"revert",disabled=busy() or saving,on_click=reset)
+    if st.session_state.get(save_refresh_key):
+        refresh_saved_view(save_refresh_key,refresh_target_key)
+    try:
+        return input_hash(Storyboard.model_validate(board).model_dump(mode="json",by_alias=True)) != baseline
+    except ValueError:
+        return True  # Incomplete edits still block generation until saved/reverted.

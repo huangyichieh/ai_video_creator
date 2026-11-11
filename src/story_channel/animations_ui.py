@@ -23,7 +23,8 @@ def animation_pipeline_controls(manager, project_id):
     st.caption(action.detail)
     direction = AnimationDirector(manager, project_id).load()
     baseline = direction.plan.model_dump_json(by_alias=True, indent=2) if direction else None
-    dirty = bool(baseline and st.session_state.get(f"animation-plan-draft-{project_id}", baseline) != baseline)
+    from .animation_ui import sync_plan_draft
+    dirty = bool(baseline and sync_plan_draft(project_id,baseline) != baseline)
     if dirty:
         st.caption("Save or revert the animation direction draft before generating.")
 
@@ -70,7 +71,8 @@ def animation_pipeline_controls(manager, project_id):
         event = Event()
         engine.stop_requested = engine.assets.stop_requested = event.is_set
         launch(lambda: generate_animations(engine, pipeline=generate_pipeline, queue_run_id=run_id), "Generating Animations: " + action.title,
-               stop_event=event, progress_path=engine.state_path, asset_engine=engine.assets)
+               stop_event=event, progress_path=engine.state_path, asset_engine=engine.assets,
+               queue_enabled=True,rerun_on_start=False)
     task = st.session_state.get("workspace-task")
     if task and busy() and task["label"].startswith("Generating Animations:"):
         title = action.title
@@ -107,11 +109,12 @@ def animations_page(manager, project_id, *, check_assets_only=False):
     from .animation_formats_ui import settings
     settings(RenderPipeline(manager,project_id))
     st.caption("Animations generates individual scenes and shots. Final assembles approved scenes into a complete video.")
-    st.markdown("**Check assets → Scene images → Direction & performance → Animated scenes → Voices & input → Video effects → Sound effects → Scene review & continuity → Final**")
+    st.markdown("**Check assets → Scene images → Direction & performance → Animated scenes → Voices & input → VFX → SFX → Scene review & continuity → Final**")
     snapshot = animation_pipeline_controls(manager, project_id)
     production, render = snapshot if snapshot else (None, None)
     key = f"page-tab-animations-{project_id}"
-    old_tabs = {"Scene / Shot list & Performance": STAGE_TABS[1], "Scene images & Voice generation": STAGE_TABS[0],
+    old_tabs = {"Video effects": STAGE_TABS[4], "Sound effects": STAGE_TABS[5],
+                "Scene / Shot list & Performance": STAGE_TABS[1], "Scene images & Voice generation": STAGE_TABS[0],
                 "Video, Lip-sync & SFX / VFX": STAGE_TABS[2], "Scene chaining & Continuity QA": STAGE_TABS[6],
                 "1. Scene images": STAGE_TABS[0], "2. Direction & performance": STAGE_TABS[1], "3. Voices & input review": STAGE_TABS[3],
                 "4. Video & effects": STAGE_TABS[2], "5. Scene review & continuity": STAGE_TABS[6]}
@@ -134,13 +137,9 @@ def animations_page(manager, project_id, *, check_assets_only=False):
         input_stage(manager, project_id, images=True, state=production)
     with tabs[2]:
         st.subheader("Direction & performance")
-        st.caption("Review each scene snapshot and its editable direction suggestions, then approve direction, references and performance.")
+        st.caption("Review each scene snapshot and its editable direction suggestions, save any changes, then continue to Animated scenes without a direction approval step.")
         from .animation_ui import animation_direction
         animation_direction(manager, project_id)
-        if manager.load(project_id).world_project_id:
-            from .scene_production_ui import direction_cards
-            with st.container(key=f"scene-direction-review-{project_id}"):
-                direction_cards(manager, project_id)
     with tabs[3]:
         if manager.load(project_id).world_project_id:
             from .scene_production_ui import animated_scenes
@@ -152,27 +151,12 @@ def animations_page(manager, project_id, *, check_assets_only=False):
     with tabs[4]:
         input_stage(manager, project_id, images=False, state=production)
     with tabs[5]:
-        st.subheader("Video effects")
-        from .finishing_ui import finishing_panel
-        engine = RenderPipeline(manager, project_id)
-        finishing_panel(engine, engine.load(), section="video")
+        from .episode_effects_ui import render as effect_list
+        effect_list(manager,project_id,"VFX")
     with tabs[6]:
-        st.subheader("Sound effects")
-        from .scene_production_ui import sound_effects
-        sound_effects(manager, project_id)
+        effect_list(manager,project_id,"SFX")
     with tabs[7]:
-        st.subheader("Scene review & continuity")
-        if manager.load(project_id).world_project_id:
-            from .final_ui import render_workspace
-            render_workspace(manager, project_id, animations=True, show_scene_review=False, state=render, show_settings=False, show_effects=False)
-        st.caption("Review finished scenes with voices and effects. Approve every scene and continuity before Final assembly.")
-        from .final_ui import scene_review_workspace
-        scene_review_workspace(manager, project_id, state=render)
-        from .animation_ui import animation_continuity
-        engine = RenderPipeline(manager, project_id)
-        if engine.load().options.continuity_animation:
-            animation_continuity(engine)
-        else:
-            st.caption("Continuity animation is not enabled. Review and approve each generated scene above before continuing to Final.")
+        from .scene_continuity_review_ui import render as review_scenes
+        review_scenes(manager,project_id)
     from .approval_navigation_ui import show_animation_approval_highlight
     show_animation_approval_highlight(project_id)

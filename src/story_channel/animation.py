@@ -33,9 +33,14 @@ def performance_options(manager, project_id, task):
         return {}
     profile = state.plan.voices.get(task.speaker)
     performance = next((line for line in state.plan.performances if line.scene_id == task.scene_id and line.line_index == task.line_index), None)
+    if performance is None and profile is not None and task.line_index<0:
+        # A narration track may explicitly be assigned a character's voice.
+        performance=Performance(scene_id=task.scene_id,line_index=0,character_id=task.speaker,
+            text=task.prompt,emotion=profile.baseline_emotion,pace=profile.pace)
     if profile is None or performance is None:
         raise ValueError("Animation direction is missing a character or dialogue line; rebuild the plan")
     performance = performance.model_copy(update={
+        "character_id":task.speaker,"text":task.prompt,
         "pause_before": performance.pause_before if task.chunk_index == 0 else 0,
         "pause_after": performance.pause_after if task.chunk_index == task.chunk_count-1 else 0})
     return {"animation_directed": True, "voice": profile.voice_id,
@@ -68,8 +73,8 @@ def require_voice(manager, project_id, character_id, *, require_performance=Fals
     path = assets.local_path(preview.asset.file_path)
     if not path.exists() or file_hash(path) != preview.file_hash:
         raise ApprovalRequired(f"Voice preview for {character_id} is missing or changed; preview and approve again")
-    if require_performance and (not state.performance_approval or state.performance_approval.content_hash != input_hash(state.plan.model_dump(mode="json"))):
-        raise ApprovalRequired("Review and approve dialogue/performance direction before generating character tracks")
+    if require_performance:
+        AnimationDirector(manager, project_id).validate_plan(state.plan)
 
 
 class AnimationDirector:
@@ -436,7 +441,7 @@ class AnimationDirector:
             self.save_state(state)
             return state
 
-    def require_ready(self):
+    def require_ready(self, scene_id=None):
         from .storyboard_asset_check import require
         require(self.manager,self.project_id)
         state = self.load()
@@ -445,12 +450,35 @@ class AnimationDirector:
         self.validate_plan(state.plan)
         from .identity import IdentityManager
         identity = IdentityManager(self.manager, self.project_id)
+        manifest = self.manager.load(self.project_id)
+        if scene_id is not None and manifest.world_project_id:
+            # Silent video generation uses only this scene's visual references.
+            # Episode-wide character/voice gates belong to shared asset and
+            # dialogue production, not a character-free establishing shot.
+            scene = next((item for item in self.assets.creative.artifact("storyboard").scenes
+                          if item.scene_id == scene_id),None)
+            if scene is None:
+                raise ValueError("Unknown storyboard scene: "+scene_id)
+            production = self.assets.load()
+            snapshot = production.records.get("scene_images:"+scene_id)
+            if not snapshot or snapshot.status != "succeeded" or not self.assets._intact(snapshot):
+                raise ApprovalRequired("Generate or apply a current scene image for "+scene_id+" first")
+            from .background_library import BackgroundLibrary
+            if not BackgroundLibrary(self.assets).approved(scene.location_id,production):
+                raise ApprovalRequired("Approve background "+scene.location_id+" on Assets before animating "+scene_id)
+            visual_tasks = {task.subject:task for task in self.assets.tasks(production,references_only=True)
+                            if task.stage == "character_references"}
+            provenance = snapshot.asset.generation_params.get("referenceHashes",{})
+            for cid in scene.character_ids:
+                reference = production.records.get("character_references:"+cid)
+                task = visual_tasks.get(cid)
+                if not task or not self.assets.record_current(reference,task,production):
+                    raise ApprovalRequired("Generate or apply a current character visual for "+cid+" on Assets before animating "+scene_id)
+                if provenance.get("character_references:"+cid) != reference.file_hash:
+                    raise ApprovalRequired("Regenerate the scene image for "+scene_id+" using the current character visual for "+cid)
+            return state
         if identity.load():
             identity.require_approved()
-        if not state.plan_approval or state.plan_approval.content_hash != self.direction_hash(state):
-            raise ApprovalRequired("Review and approve the current animation/reference plan")
-        if not state.performance_approval or state.performance_approval.content_hash != input_hash(state.plan.model_dump(mode="json")):
-            raise ApprovalRequired("Review and approve dialogue/performance direction and voice previews")
         for cid in {line.character_id for line in state.plan.performances}:
             require_voice(self.manager, self.project_id, cid)
         return state

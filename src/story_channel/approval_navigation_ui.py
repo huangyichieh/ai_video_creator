@@ -7,15 +7,9 @@ import streamlit as st
 
 def open_animation_approval(project_id, stage, render):
     targets = {
-        "direction_review": f"animation-direction-approval-{project_id}",
-        "performance_review": f"animation-performance-approval-{project_id}",
-        "scene_direction_review": f"scene-direction-review-{project_id}",
-        "visual_review": f"animated-visual-review-{project_id}",
         "input_review": f"animation-input-approval-{project_id}",
         "continuity_review": f"animation-continuity-approval-{project_id}",
     }
-    if stage in ("direction_review", "performance_review", "scene_direction_review"):
-        st.session_state[f"animation-direction-panel-{project_id}"] = True
     if stage == "scene_review":
         pending = next((r for r in render.scenes.values() if not r.approved_hash or r.approved_hash != r.file_hash), None)
         if pending:

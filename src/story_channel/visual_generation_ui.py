@@ -1,4 +1,5 @@
 """One framed generation section with mutually exclusive prompt modes."""
+from .image_preview_ui import image_preview
 import streamlit as st
 
 from .visual_generation import VisualGeneration, DESIGN_MODEL, EDIT_MODEL
@@ -142,7 +143,7 @@ def generation_section(engine, state, stage, subject, *, changed=False, availabl
             valid = False
             try:
                 path = inputs.selected_image(stage, subject, state)
-                st.image(str(path), caption="Reference image sent to Runway", width="stretch" if is_background else 256)
+                image_preview(str(path), caption="Reference image sent to Runway", width="stretch" if is_background else 256)
                 valid = True
                 def remove():
                     if is_background:

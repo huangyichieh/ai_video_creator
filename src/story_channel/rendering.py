@@ -426,6 +426,10 @@ class RenderPipeline:
         """Assemble existing approved scenes only; never invoke a generation provider."""
         self.assembly_progress(0, "Checking approved scenes")
         try:
+            if self.manager.load(self.project_id).world_project_id:
+                from .scene_continuity_review import current
+                if not current(self):
+                    raise ApprovalRequired("Review current animated scenes with OpenAI on Animations > Scene Review & Continuity first")
             production, board = self._input()
             with project_lock(self.path):
                 state = self._refresh(production, board)
@@ -434,14 +438,14 @@ class RenderPipeline:
                     if (record.status != "succeeded" or not record.file or not record.approved_hash
                             or record.approved_hash != record.file_hash
                             or file_hash(self.assets.local_path(record.file)) != record.file_hash):
-                        raise ApprovalRequired("Generate, review and approve every current scene on Animations first")
-                if state.options.continuity_animation:
+                        raise ApprovalRequired("Compose, review and approve every current scene on Final > Timeline & Compositing first")
+                if state.options.continuity_animation and not self.manager.load(self.project_id).world_project_id:
                     from .animation import AnimationDirector
                     from .animation_rendering import continuity_signature
                     director = AnimationDirector(self.manager, self.project_id)
                     approval = director.load().continuity_approval
                     if not approval or approval.content_hash != continuity_signature(director):
-                        raise ApprovalRequired("Approve scene continuity on Animations first")
+                        raise ApprovalRequired("Review scene continuity on Final first")
                 self._assemble(production, board, state)
                 return state
         except Exception as exc:
@@ -451,10 +455,11 @@ class RenderPipeline:
 
     def run(self, *, subject=None, force=False, modification=None, expected=None, assemble=True):
         production, board = self._input()
+        episode=bool(self.manager.load(self.project_id).world_project_id)
         with project_lock(self.path):
             state = self._refresh(production, board)
             state.error = None
-            if state.options.continuity_animation:
+            if state.options.continuity_animation and not episode:
                 from .animation import AnimationDirector
                 if self.video_provider is None and self.assets.demo:
                     raise ApprovalRequired("Production animation requires real approved references and voice previews; regenerate and approve the asset batch with OpenAI instead of Demo")
@@ -481,7 +486,7 @@ class RenderPipeline:
                     continue
                 if force:
                     state.scenes[scene.scene_id].approved_hash = ""
-                if state.options.continuity_animation:
+                if state.options.continuity_animation and not episode:
                     position = next(i for i, item in enumerate(board) if item.scene_id == scene.scene_id)
                     first_shot = next(shot for shot in direction_state.plan.shots if shot.scene_id == scene.scene_id)
                     previous_scene = board[position-1] if position else None
@@ -523,7 +528,13 @@ class RenderPipeline:
                     state.status = "continuity_review"
                     self._save(state)
                     return state
-                if state.options.continuity_animation:
+                if self.manager.load(self.project_id).world_project_id:
+                    from .scene_continuity_review import current
+                    if not current(self):
+                        state.status='continuity_review'
+                        self._save(state)
+                        return state
+                elif state.options.continuity_animation:
                     from .animation_rendering import continuity_signature
                     director = AnimationDirector(self.manager, self.project_id)
                     approval = director.load().continuity_approval
@@ -626,10 +637,15 @@ class RenderPipeline:
             raise
 
     def approve(self, note=""):
+        episode=bool(self.manager.load(self.project_id).world_project_id)
+        if episode:
+            from .scene_continuity_review import current
+            if not current(self):
+                raise ApprovalRequired("Review current animated scenes with OpenAI before final approval")
         production, board = self._input()
         with project_lock(self.path):
             state = self._refresh(production, board)
-            if state.options.continuity_animation:
+            if state.options.continuity_animation and not episode:
                 from .animation import AnimationDirector
                 from .animation_rendering import continuity_signature
                 director = AnimationDirector(self.manager, self.project_id)

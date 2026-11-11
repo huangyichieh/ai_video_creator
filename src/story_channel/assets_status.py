@@ -312,7 +312,7 @@ def world_assets_status_rows(engine, state):
             sfx_count += read_json(receipt).get("kind") != "bgm"
         except (OSError,ValueError):
             pass
-    add("SFX", "audio_library", "Licensed SFX", f"{sfx_count} library items", checklist="Optional; scene-specific generation is on Animations > Sound effects")
+    add("SFX", "audio_library", "Licensed SFX", f"{sfx_count} library items", checklist="Optional; scene-specific generation is on Animations > SFX")
     from .bgm_library import entries,ready
     music = entries(engine.manager,engine.project_id)
     for identity,item in music.items():

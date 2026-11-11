@@ -7,7 +7,7 @@ from .assets_workflow import next_assets_action
 from .files import atomic_write, input_hash
 
 STAGE_TABS = ("Scene images", "Direction & performance", "Animated scenes", "Voices & input",
-        "Video effects", "Sound effects", "Scene review & continuity")
+        "VFX", "SFX", "Scene review & continuity")
 TABS = ("Check assets", *STAGE_TABS)
 
 
@@ -56,10 +56,6 @@ def animation_snapshot(engine, *, refresh=True):
         except (OSError, ValueError):
             pass
     row("Animation direction", "Shot list / performance plan", "Ready" if valid_plan else "Missing / outdated")
-    plan_approved = bool(valid_plan and direction.plan_approval and direction.plan_approval.content_hash == director.direction_hash(direction))
-    performance_approved = bool(valid_plan and direction.performance_approval and direction.performance_approval.content_hash == input_hash(direction.plan.model_dump(mode="json")))
-    row("Direction approval", "References, shots and locations", "Approved" if plan_approved else "Needs review", "Approved" if plan_approved else "Not approved")
-    row("Performance approval", "Dialogue and character performance", "Approved" if performance_approved else "Needs review", "Approved" if performance_approved else "Not approved")
     names = {"scene_images": "Scene images", "voices": "Voice tracks", "subtitles": "Subtitle alignment", "consistency": "Scene input QA"}
     try:
         tasks = [t for t in assets.tasks(production.model_copy(deep=True)) if t.stage in names]
@@ -100,39 +96,47 @@ def animation_snapshot(engine, *, refresh=True):
     if not direction or not direction.shots:
         row("Video shots / chaining", "Planned shots", "pending" if valid_plan else "Blocked", tab=STAGE_TABS[2])
     intact_scenes = {sid: r.status == "succeeded" and engine._scene_intact(r) for sid, r in render.scenes.items()}
-    for sid, record in render.scenes.items():
+    for sid, record in (render.scenes.items() if not episode else []):
         ready = intact_scenes[sid]
         approved = bool(ready and record.approved_hash == record.file_hash and record.approved_hash)
         row("Scene video", sid, "Generating…" if record.status == "running" else record.status if not (record.status == "succeeded" and not ready) else "stale",
             "Approved" if approved else "Not approved", record.revision, record.attempts, record.error or "", STAGE_TABS[6] if episode else STAGE_TABS[2])
-    if not render.scenes:
+    if not render.scenes and not episode:
         row("Scene video", "All storyboard scenes", "Awaiting scene input approval", tab=STAGE_TABS[2])
     approved_scenes = sum(bool(intact_scenes[sid] and r.approved_hash and r.approved_hash == r.file_hash) for sid, r in render.scenes.items())
-    row("Scene approval", "All generated scenes", f"{approved_scenes}/{len(render.scenes)} approved",
-        "Approved" if render.scenes and approved_scenes == len(render.scenes) else "Not approved", tab=STAGE_TABS[6])
+    if episode:
+        from .scene_continuity_review import current
+        ai_reviewed=current(engine)
+        row("AI continuity review","All animated scenes","Reviewed" if ai_reviewed else "Needs AI review",
+            "Not required",tab=STAGE_TABS[6])
+    else:
+        row("Scene approval", "All generated scenes", f"{approved_scenes}/{len(render.scenes)} approved",
+            "Approved" if render.scenes and approved_scenes == len(render.scenes) else "Not approved", tab=STAGE_TABS[6])
     continuity_approved = not render.options.continuity_animation
-    if render.options.continuity_animation and direction and direction.continuity_approval:
+    if not episode and render.options.continuity_animation and direction and direction.continuity_approval:
         from .animation_rendering import continuity_signature
         try:
             continuity_approved = direction.continuity_approval.content_hash == continuity_signature(director)
         except (OSError, ValueError):
             pass
-    row("Continuity approval", "Faces, voices, motion and scene cuts", "Approved" if continuity_approved and render.options.continuity_animation else "Not enabled" if not render.options.continuity_animation else "Needs review",
-        "Approved" if continuity_approved and render.options.continuity_animation else "Not required" if continuity_approved else "Not approved", tab=STAGE_TABS[6])
+    if not episode:
+        row("Continuity approval", "Faces, voices, motion and scene cuts", "Approved" if continuity_approved and render.options.continuity_animation else "Not enabled" if not render.options.continuity_animation else "Needs review",
+            "Approved" if continuity_approved and render.options.continuity_animation else "Not required" if continuity_approved else "Not approved", tab=STAGE_TABS[6])
 
-    scene_direction_ready, visuals_ready, visuals_approved = True, True, True
+    visuals_ready = True
     if episode and valid_plan:
         from .scene_production import SceneProduction
         service = SceneProduction(engine.manager, engine.project_id)
         scene_ids = [s.scene_id for s in assets.creative.artifact("storyboard").scenes]
-        scene_direction_ready = all(service.direction_approved(sid) for sid in scene_ids)
         visuals_ready = all(service.visual_current(sid, render.options) for sid in scene_ids)
-        visuals_approved = all(service.visual_current(sid, render.options, approved=True) for sid in scene_ids)
         visual_records = service.visuals()
         for sid in scene_ids:
-            row("Scene direction review", sid, "Approved" if service.direction_approved(sid) else "Needs review", tab=STAGE_TABS[1])
+            row("Scene direction", sid, "Ready" if service.direction_ready(sid) else "Missing / outdated", tab=STAGE_TABS[1])
             record = visual_records.get(sid, {})
-            row("Animated scene", sid, record.get("status", "pending"),
+            status=record.get("status","pending")
+            if status=="succeeded" and not service.visual_current(sid,render.options):
+                status="stale"
+            row("Animated scene", sid, status,
                 "Approved" if service.visual_current(sid, render.options, approved=True) else "Not approved",
                 record.get("revision", 0), record.get("attempts", 0), record.get("error", ""), STAGE_TABS[2])
 
@@ -146,16 +150,8 @@ def animation_snapshot(engine, *, refresh=True):
         action = AnimationAction("direction", "Prepare animation direction", "Build the current shot/performance plan.", runnable=True)
     elif production.next_stage == "scene_images":
         action = AnimationAction("scene_images", "Scene images", "Generate missing or outdated scene images.", STAGE_TABS[0], assets.can_generate("scene_images", production))
-    elif not scene_direction_ready:
-        action = AnimationAction("scene_direction_review", "Review direction for every scene", "Apply or revert each scene's direction suggestions, then approve.", STAGE_TABS[1])
-    elif not plan_approved:
-        action = AnimationAction("direction_review", "Approve animation and references", "Review the current shot plan and reference pack, then approve.")
-    elif not performance_approved:
-        action = AnimationAction("performance_review", "Approve performance direction", "Review dialogue emotions, delivery, gestures and expressions, then approve.")
     elif not visuals_ready:
-        action = AnimationAction("visual_scenes", "Animated scenes", "Generate silent scene motion using approved snapshots and direction.", STAGE_TABS[2], True)
-    elif not visuals_approved:
-        action = AnimationAction("visual_review", "Approve animated scenes", "Inspect each generated visual and approve it before voice composition.", STAGE_TABS[2])
+        action = AnimationAction("visual_scenes", "Animated scenes", "Generate silent scene motion using current snapshots and saved direction.", STAGE_TABS[2], True)
     elif production.next_stage in names:
         stage = production.next_stage
         action = AnimationAction(stage, names[stage], "Generate the next scene-input stage.", STAGE_TABS[3], assets.can_generate(stage, production))
@@ -165,6 +161,9 @@ def animation_snapshot(engine, *, refresh=True):
         effects = [key for key in effect_tasks if not key.startswith("lipsync:") and not engine.finishing.task_intact(finishing.records.get(key), effect_tasks[key][2])]
         if effects:
             action = AnimationAction("effects", "SFX / Ambience and VFX", "Generate missing configured effect layers; optional layers are skipped when not configured.", STAGE_TABS[5] if effects[0].startswith("sfx:") else STAGE_TABS[4], True)
+        elif episode:
+            action=(AnimationAction("complete","Continue to Final","AI review is current. Compose voices/effects and review the finished video on Final.",page="Final")
+                if ai_reviewed else AnimationAction("ai_continuity_review","Review scene continuity","Use Review to check all animated scenes with OpenAI.",STAGE_TABS[6]))
         elif not render.scenes or not all(intact_scenes.values()):
             action = AnimationAction("videos", "Compose scene voices and effects" if episode else "Scene videos / shots", "Compose approved visuals, voices and configured effects; preserve successful work.", STAGE_TABS[6] if episode else STAGE_TABS[2], True)
         elif not continuity_approved:
@@ -207,13 +206,6 @@ def _generate_animations(engine, *, pipeline, queue):
         try:
             if action.stage == "direction":
                 AnimationDirector(engine.manager, engine.project_id).prepare()
-                if engine.manager.load(engine.project_id).world_project_id:
-                    from .scene_production import SceneProduction
-                    service = SceneProduction(engine.manager, engine.project_id)
-                    for scene in engine.assets.creative.artifact("storyboard").scenes:
-                        if engine.stop_requested():
-                            break
-                        service.propose(scene.scene_id)
             elif action.stage == "visual_scenes":
                 from .scene_production import SceneProduction
                 service = SceneProduction(engine.manager, engine.project_id)

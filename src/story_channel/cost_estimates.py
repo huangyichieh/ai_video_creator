@@ -31,7 +31,7 @@ def estimate_usage(record, settings):
     if record.video_seconds:
         if provider == "runway":
             field = "act_two_cost_per_second" if model == "act_two" else "runway_video_cost_per_second"
-            fallback = {"act_two": ".05", "gen4_turbo": ".05", "gen4.5": ".12"}.get(model, ".17")
+            fallback = {"act_two": ".05", "gen4_turbo": ".05", "gen4.5": ".12", "aleph2": ".28", "aleph2_alpha": ".28"}.get(model, ".17")
         else:
             field, fallback = ("lip_sync_cost_per_second", ".05") if provider == "sync" else ("video_cost_per_second", ".10")
         return amount(record.video_seconds) * rate(field, fallback), "Video rate per generated second"

@@ -108,6 +108,11 @@ def _dispatch():
             running.append(task)
 
 
+def dispatch_queued_tasks():
+    """Advance queued work from a polling owner without collecting UI callbacks."""
+    _dispatch()
+
+
 def stop_tasks():
     st.session_state["workspace-stopping"] = True
     for task in workspace_tasks():
@@ -241,7 +246,8 @@ def launch_assets(engine, callback, label="Generating assets", *, rerun_on_start
     def run():
         engine.stop_requested = event.is_set
         return callback()
-    service = service or (engine.settings.tts_provider if "voice" in label.lower() else engine.settings.image_provider)
+    service = service or (engine.settings.tts_provider if "voice" in label.lower() else
+                          "openai" if "scene image" in label.lower() else engine.settings.image_provider)
     return launch(run, label, stop_event=event, progress_path=engine.state_path, asset_engine=engine, rerun_on_start=rerun_on_start, queue_enabled=True, allow_parallel=True, service=service)
 
 
@@ -308,6 +314,13 @@ def task_status(project_path):
     if st.session_state.pop("dialog-open-requested", False):
         st.rerun(scope="app")
     task = st.session_state.get("workspace-task")
+    if (st.session_state.get("workspace_page") == "Animations"
+            and st.session_state.get(f"page-tab-animations-{project_path.name}") == "Animated scenes"
+            and (any(item.get("animated_scene_project") == project_path.name for item in workspace_tasks())
+                or task and task["label"].startswith("Generating Animations:") and not task["future"].done())):
+        # Video cards own live progress and completion; rebuilding the page
+        # while a card is generating removes the other scenes temporarily.
+        return
     stable_scene_view = (st.session_state.get("workspace_page") == "Animations"
         and st.session_state.get(f"page-tab-animations-{project_path.name}") == "Scene images")
     if (task and st.session_state.get("workspace_page") == "Animations"

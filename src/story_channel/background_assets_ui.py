@@ -1,3 +1,4 @@
+from .image_preview_ui import image_preview
 from .dialog_ui import dialog
 """Single-panorama background cards with individual approval and draft creation."""
 from .error_report_ui import render_error, error_project, report_widget_key
@@ -347,7 +348,7 @@ def background_outputs(engine, lid):
                     loading_result("Generating…")
                 elif record:
                     if record.asset and engine._intact(record):
-                        st.image(str(engine.local_path(record.asset.file_path)))
+                        image_preview(str(engine.local_path(record.asset.file_path)))
                         review = record.asset.generation_params.get("yawReview", {})
                         if review.get("requiresReview"):
                             st.warning("Camera-angle review: this view looks almost identical to a supplied reference. The requested rotation may be missing.")
@@ -516,7 +517,7 @@ def panorama_panel(engine, lid, state):
     elif record and record.asset and engine.local_path(record.asset.file_path).is_file():
         path = engine.local_path(record.asset.file_path)
         assessment = assess_panorama(path)
-        st.image(str(path), caption=f"Panorama candidate · revision {record.revision}")
+        image_preview(str(path), caption=f"Panorama candidate · revision {record.revision}")
         if assessment["isEquirectangularLayout"]:
             with st.expander("Inspect 360° coverage and start/end seam", expanded=False):
                 panorama_viewer(path)

@@ -28,7 +28,7 @@ def episode_status(manager,project):
         return "OUTLINE · AWAITING APPROVAL"
     for name in ("story","script","storyboard","prompts"):
         state = project.steps.get(name)
-        title = name.upper()
+        title = "ANIMATION PREPARATION" if name == "prompts" else name.upper()
         if not state or state.status in ("not_started","pending"):
             return title+" · NOT STARTED"
         if state.status in ("running","failed","stale"):
@@ -39,7 +39,7 @@ def episode_status(manager,project):
             if review and review.status in ("running","failed"):
                 return "STORY REVIEW · "+("REVIEWING" if review.status == "running" else "FAILED")
             return title+" · AWAITING APPROVAL"
-    return "PROMPTS · AWAITING APPROVAL"
+    return "ANIMATION PREPARATION · PENDING"
 
 
 def select_episode(world_id,episode_id):

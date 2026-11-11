@@ -64,11 +64,9 @@ else:
 def test_pipeline_stops_at_human_reviews_and_hands_approved_scenes_to_final(tmp_path):
     engine, director = ready_assets(tmp_path)
     assert animation_snapshot(engine)[0].stage == "scene_images"
-    assert generate_animations(engine, pipeline=True).stage == "direction_review"
+    assert generate_animations(engine).stage == "voices"
     assert director.load().plan_approval is None
-    director.approve_plan()
-    assert generate_animations(engine, pipeline=True).stage == "performance_review"
-    director.approve_performance()
+    assert director.load().performance_approval is None
     assert generate_animations(engine).stage == "subtitles"
     assert not any(r.stage == "subtitles" and r.status == "succeeded" for r in engine.assets.load().records.values())
     assert generate_animations(engine, pipeline=True).stage == "input_review"
@@ -123,35 +121,17 @@ def test_ui_status_table_pipeline_buttons_and_review_navigation(tmp_path, monkey
     assert list(status["Step"]) == sorted(status["Step"])
     next_button = app.button(key=f"animation-workflow-next-{pid}")
     assert "Scene images" in next_button.label and not next_button.disabled
-    assert any("Direction approval" in list(frame.value["Stage"]) for frame in app.dataframe if "Stage" in frame.value.columns)
+    assert not {"Direction approval", "Performance approval", "Scene direction review"} & set(status["Stage"])
     next_button.click().run()
     finish_background(app)
     assert not app.exception
-    assert app.button(key=f"animation-workflow-run-{pid}").disabled
+    assert not app.button(key=f"animation-workflow-run-{pid}").disabled
     assert not app.button(key=f"animation-workflow-next-{pid}").disabled
-    app.session_state[f"animation-direction-panel-{pid}"] = False
-    app.run()
-    app.button(key=f"animation-workflow-next-{pid}").click().run()
-    assert app.session_state[f"page-tab-animations-{pid}"] == "Direction & performance"
-    assert app.session_state[f"animation-direction-panel-{pid}"] is True
-    assert app.session_state[f"animation-approval-navigation-{pid}"]["target"] == f"animation-direction-approval-{pid}"
-    assert any("story-approval-highlight" in item.proto.body and "sessionStorage" in item.proto.body for item in app.get("html"))
-    assert "workspace-task" not in app.session_state
+    assert "Voice tracks" in app.button(key=f"animation-workflow-next-{pid}").label
+    assert not any("Approve animation and references" == b.label or "Approve dialogue / performance direction" == b.label for b in app.button)
 
-
-    director = AnimationDirector(engine.manager, pid)
-    director.approve_plan()
-    app.run()
-    assert app.button(key=f"animation-approve-plan-{pid}").label == "Approved"
-    assert app.button(key=f"animation-approve-plan-{pid}").disabled
-    app.button(key=f"animation-workflow-next-{pid}").click().run()
-    assert app.session_state[f"animation-approval-navigation-{pid}"]["target"] == f"animation-performance-approval-{pid}"
-    assert director.load().performance_approval is None
-    director.approve_performance()
     generate_animations(engine, pipeline=True)
     app.run()
-    assert app.button(key=f"animation-performance-approve-{pid}").label == "Approved"
-    assert app.button(key=f"animation-performance-approve-{pid}").disabled
     app.button(key=f"animation-workflow-next-{pid}").click().run()
     assert app.session_state[f"page-tab-animations-{pid}"] == "Voices & input"
     assert app.session_state[f"animation-approval-navigation-{pid}"]["target"] == f"animation-input-approval-{pid}"
@@ -183,7 +163,9 @@ def test_ui_status_table_pipeline_buttons_and_review_navigation(tmp_path, monkey
     app.button(key=f"animation-workflow-review-{pid}").click().run()
     finish_background(app)
     assert not app.exception
-    assert all(app.button(key=f"approve-scene-{scene_id}").disabled for scene_id in engine.load().scenes)
+    # Approved scenes may be collapsed, so their lazy controls need not exist.
+    assert all(button.disabled for button in app.button if str(button.key).startswith("approve-scene-"))
+    assert all(record.approved_hash == record.file_hash for record in engine.load().scenes.values())
     assert animation_snapshot(engine)[0].stage == "complete"
     assert engine.load().final_file is None
     # A new scene revision requires fresh review while other approvals survive.
@@ -201,9 +183,8 @@ def test_early_project_has_blocked_status_table_and_assets_navigation(tmp_path, 
     app = open_animations(engine, monkeypatch)
     action, rows = animation_snapshot(engine)
     assert action.stage == "assets" and not action.runnable
-    assert {row["Stage"] for row in rows} >= {"Scene video", "Video shots / chaining", "Performance approval", "Scene approval", "Continuity approval"}
+    assert {row["Stage"] for row in rows} >= {"Scene video", "Video shots / chaining", "Animation direction", "Scene approval", "Continuity approval"}
     app.button(key="nav-animations").click().run()
     assert not app.exception
-    assert app.button(key=f"animation-workflow-run-{project.project_id}").disabled
-    app.button(key=f"animation-workflow-review-{project.project_id}").click().run()
-    assert not app.exception and app.session_state["workspace_page"] == "Assets"
+    assert any("Approve this episode's Storyboard" in item.value for item in app.info)
+    assert not any(b.key == f"animation-workflow-run-{project.project_id}" for b in app.button)

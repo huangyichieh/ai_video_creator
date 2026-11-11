@@ -20,6 +20,8 @@ def subtitle_progress(engine, state, *, working=False):
         for line_index, (speaker, text) in enumerate(lines):
             for chunk_index, chunk in enumerate(text_chunks(text)):
                 subject = f"{scene.scene_id}_{line_index:04d}_{chunk_index:04d}"
+                if task:=tasks.get(subject):
+                    speaker,chunk=task.speaker,task.prompt
                 record = state.records.get(f"subtitles:{subject}")
                 voice = state.records.get(f"voices:{subject}")
                 if record and record.status == "running":

@@ -40,7 +40,8 @@ def test_world_first_creation_navigation_assets_and_episode_outline(tmp_path, mo
     next(t for t in app.text_area if t.label == "Story outline").set_value("The keeper saves a memory.")
     next(b for b in app.button if b.label == "Create episode").click().run()
     assert not app.exception
-    assert {"Outline", "Story", "Script", "Storyboard", "Prompts"} <= {tab.label for tab in app.tabs}
+    assert {"Outline", "Story", "Script", "Storyboard"} <= {tab.label for tab in app.tabs}
+    assert "Prompts" not in {tab.label for tab in app.tabs}
     manager = ProjectManager(Settings(data_root=root))
     episode = next(p for p in manager.list_projects() if p.world_project_id)
     app.button(key=f"episode-unchanged-{episode.project_id}-outline").click().run()

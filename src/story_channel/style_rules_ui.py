@@ -1,4 +1,5 @@
 """Project style controls and the shared visual consistency report."""
+from .image_preview_ui import image_preview
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 
@@ -68,7 +69,7 @@ def style_rules_box(engine):
         state = engine.load()
         if state.project_style_image:
             try:
-                st.image(str(StyleRules(engine).image(state)), width=256, caption="Shared style guide · applies in text and image modes")
+                image_preview(str(StyleRules(engine).image(state)), width=256, caption="Shared style guide · applies in text and image modes")
             except (ValueError, OSError) as exc:
                 st.warning(str(exc))
             def remove_style():

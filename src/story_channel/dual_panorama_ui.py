@@ -1,4 +1,5 @@
 """Four overlapping directional masters from the saved spatial layout."""
+from .image_preview_ui import image_preview
 import streamlit as st
 
 from .dual_panorama import MASTERS, PANORAMA_MODEL
@@ -36,7 +37,7 @@ def _image(engine, state, lid, name):
     if activity == "running":
         loading_result("Generating…")
     elif record and record.asset and engine._intact(record):
-        st.image(str(engine.local_path(record.asset.file_path)))
+        image_preview(str(engine.local_path(record.asset.file_path)))
     if record and record.error:
         render_error(record.error, project_path=engine.path, task_key="assets:backgrounds:"+subject, key="location-error-"+subject)
     if name in MASTERS:

@@ -260,7 +260,8 @@ class LibraryMedia:
                       "audio": audio_path.relative_to(self.path).as_posix(), "profileHash": signature,
                       "audioAsset": audio.model_dump(mode="json", by_alias=True), "fileHash": file_hash(audio_path)}
             result["audioAsset"]["filePath"] = result["audio"]
-        result.update(revision=0, status="generating_video" if video else "succeeded",
+        from .models import utc_now
+        result.update(revision=0, createdAt=utc_now().isoformat(),status="generating_video" if video else "succeeded",
                       profile=profile.model_dump(mode="json"))
         self._save_sample(character_id, result, reused_revision=reusable["revision"] if reusable else None)
         if video:
@@ -300,6 +301,7 @@ class LibraryMedia:
                 from .style_rules import apply_rules
                 prompt = apply_rules(prompt, self.assets.load().project_style_rules)
                 if not self.assets.demo:
+                    from .provider_prompts import compile_prompt
                     prompt = compile_prompt(self.assets.creative, prompt, video=True,
                         task_key=f"library:talking_sample:{character_id}:prompt")
                 config = ProviderConfig(provider="demo" if self.assets.demo else "runway", model="ffmpeg-image-motion" if self.assets.demo else "klingO3_pro",

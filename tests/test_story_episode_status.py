@@ -30,8 +30,4 @@ def test_story_status_follows_content_workflow_and_never_uses_animation_status(w
     pipeline.generate("storyboard")
     assert status() == "STORYBOARD · AWAITING APPROVAL"
     pipeline.approve("storyboard")
-    assert status() == "PROMPTS · NOT STARTED"
-    pipeline.generate("prompts")
-    assert status() == "PROMPTS · AWAITING APPROVAL"
-    approve_content(pipeline,"prompts",expected=content_digest(pipeline,"prompts"))
     assert status() == "READY TO ANIMATE"

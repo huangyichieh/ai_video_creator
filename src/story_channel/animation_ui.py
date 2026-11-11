@@ -1,4 +1,5 @@
-"""Reference/voice direction and continuity review, with explicit human approvals."""
+"""Editable reference/performance direction and generated-media continuity review."""
+from .image_preview_ui import image_preview
 from .error_report_ui import render_error, error_project, report_widget_key
 from .generation_ui import generation_button
 import streamlit as st
@@ -13,6 +14,16 @@ from .action_labels import action_label, text_action_label
 from .voice_design_ui import voice_design_heading
 
 
+def sync_plan_draft(project_id,baseline):
+    """Refresh a clean shared editor after a scene save; retain actual drafts."""
+    key = f"animation-plan-draft-{project_id}"
+    baseline_key = key+"-baseline"
+    if key not in st.session_state or st.session_state[key] == st.session_state.get(baseline_key):
+        st.session_state[key] = baseline
+    st.session_state[baseline_key] = baseline
+    return st.session_state[key]
+
+
 def animation_direction(manager, project_id):
     director = AnimationDirector(manager, project_id)
     state = director.load()
@@ -21,17 +32,18 @@ def animation_direction(manager, project_id):
     library = identity.load()
     panel_key = f"animation-direction-panel-{project_id}"
     st.session_state.setdefault(panel_key, bool(state))
-    with st.expander("Shot direction and performance approvals", key=panel_key, on_change="rerun"):
+    with st.expander("Shot direction and performance", key=panel_key, on_change="rerun"):
         if library:
             st.caption("Voice profiles and Location Bible come from Identity library. Edit them there, save, then rebuild this plan. Shot actions, interaction targets, costume/prop IDs and performance metadata remain editable here.")
-        st.caption("Voice casting and audition approval are managed on Assets. Here, review the scene images from step 1, save shot/performance changes, and complete both approval checks below before step 3.")
+        st.caption("Voice casting and audition approval are managed on Assets. Here, review the scene images from step 1, save any shot/performance changes, then continue to step 3. No direction or performance approval is required.")
         if st.button("Build / rebuild animation plan", key=f"animation-build-{project_id}", disabled=busy()):
             launch(director.prepare, "Building animation direction", lambda _: st.session_state.pop(f"animation-plan-draft-{project_id}", None))
         if not state:
             return
-        path = director.path / "animation_plan.md"
-        if path.exists():
-            st.markdown(path.read_text(encoding="utf-8"))
+        st.markdown("### Animation direction")
+        st.caption("Open a scene below to regenerate its direction independently or edit and save it manually.")
+        from .scene_production_ui import direction_cards
+        direction_cards(manager,project_id)
         with st.expander("Optional Act-Two performance for dialogue close-ups"):
             st.caption("Use only for important single-character dialogue close-ups. Upload a 3-30 second driving performance video with a clearly visible face. This transfers acting; it is not a text-only or audio-only lip-sync step. Voice tracks remain separately approved.")
             ids = [shot.shot_id for shot in state.plan.shots]
@@ -51,7 +63,7 @@ def animation_direction(manager, project_id):
                 save_performance(None)
         draft_key = f"animation-plan-draft-{project_id}"
         baseline = state.plan.model_dump_json(by_alias=True, indent=2)
-        st.session_state.setdefault(draft_key, baseline)
+        sync_plan_draft(project_id,baseline)
         text = st.text_area("Animation / performance / voice profile JSON", key=draft_key, height=320, disabled=busy())
         st.caption("For a Kling terminal keyframe, set a shot's lastFrame to an approved image path inside this project. It is sent on the final generated part of that shot. Changing the image requires direction approval again; Act-Two does not accept this constraint.")
         changed = text != baseline
@@ -104,25 +116,12 @@ def animation_direction(manager, project_id):
                 st.button("Applied" if index in report["applied"] else "Apply suggestion",
                           key=f"animation-typo-apply-{project_id}-{index}", on_click=apply,
                           disabled=busy() or stale or index in report["applied"])
-        plan_approved = bool(state.plan_approval and state.plan_approval.content_hash == director.direction_hash(state))
-        performance_approved = bool(state.performance_approval and state.performance_approval.content_hash == input_hash(state.plan.model_dump(mode="json")))
-        with st.container(key=f"animation-direction-approval-{project_id}"):
-            checked = st.checkbox("I reviewed the shot plan, character references and location bible", key=f"animation-plan-check-{project_id}")
-            if st.button("Approved" if plan_approved else "Approve animation and references", key=f"animation-approve-plan-{project_id}", disabled=busy() or changed or not checked or plan_approved):
-                launch(director.approve_plan, "Approving animation direction")
-        if state.plan_approval:
-            current = state.plan_approval.content_hash == director.direction_hash(state)
-            st.caption("Animation/reference approval: " + ("current" if current else "outdated — approve current references again"))
         pack = director.references()
         with st.expander("Character and location reference pack"):
             for key, item in pack.items():
                 st.write(key)
-                st.image(str(director.assets.local_path(item["file"])), width=260)
+                image_preview(str(director.assets.local_path(item["file"])), width=260)
             st.json({"references": pack, "locations": {k: v.model_dump(mode="json", by_alias=True) for k, v in state.plan.locations.items()}})
-        with st.container(key=f"animation-performance-approval-{project_id}"):
-            performance = st.checkbox("I reviewed each line's emotion, intensity, pauses, subtext, gesture and expression", key=f"animation-performance-check-{project_id}")
-            if st.button("Approved" if performance_approved else "Approve dialogue / performance direction", key=f"animation-performance-approve-{project_id}", disabled=busy() or changed or not performance or performance_approved):
-                launch(director.approve_performance, "Approving performance direction")
         st.caption("After changing voice/performance direction, regenerate stale voice tracks, alignment and asset reviews before rendering. AI voice and face consistency still require listening and visual review.")
 
 
@@ -153,7 +152,7 @@ def animation_continuity(engine):
             if record.end_frame:
                 file = director.assets.local_path(record.end_frame)
                 if file.exists():
-                    st.image(str(file), caption="Cut frame used to condition the next compatible shot", width=320)
+                    image_preview(str(file), caption="Cut frame used to condition the next compatible shot", width=320)
             if generation_button("Retry / regenerate this shot", key=f"animation-shot-retry-{record.shot_id}", disabled=busy()):
                 launch_render(engine, lambda sid=record.shot_id: engine.retry_animation_shot(sid), f"Retrying {record.shot_id}")
             if record.asset and record.asset.generation_params.get("jobId"):

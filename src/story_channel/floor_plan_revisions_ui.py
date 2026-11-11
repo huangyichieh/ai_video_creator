@@ -1,4 +1,6 @@
 """Preview and restore one location's floor-plan revisions in a dialog."""
+from .image_preview_ui import image_preview
+from .revision_labels import revision_label
 import streamlit as st
 
 from .dialog_ui import dialog,Deferred,request_open
@@ -36,7 +38,7 @@ def revision_dialog(engine,lid):
         st.info("No floor-plan revisions yet. Generate a layout or save reference settings first.")
     else:
         identity = st.selectbox("Floor-plan revision",[item["id"] for item in saved],
-            format_func=lambda value:next(f"Revision {item['revision']} · {item['source']}" for item in saved if item["id"] == value),
+            format_func=lambda value:next(revision_label(item)+f" · {item['source']}" for item in saved if item["id"] == value),
             key=f"floor-plan-revision-choice-{engine.project_id}-{lid}")
         try:
             item = preview(engine,lid,identity)
@@ -59,7 +61,7 @@ def revision_dialog(engine,lid):
             columns = st.columns(3)
             for index,(label,relative) in enumerate(images):
                 with columns[index % 3]:
-                    st.image(str(engine.local_path(relative)),caption=label,width="stretch")
+                    image_preview(str(engine.local_path(relative)),caption=label,width="stretch")
         expected = signature(state.location_reference_sets[lid])
         active = identity == expected and (not data["floor_plan"].strip() or not data["object_layout"] or
             bool(current_guides(engine,lid,state.location_reference_sets[lid])))

@@ -1,4 +1,6 @@
 """Character reference cards and drafts backed by the canonical character bible."""
+from .image_preview_ui import image_preview
+from .revision_labels import revision_label
 from .error_report_ui import render_error, error_project, report_widget_key
 from .generation_ui import generation_button
 import difflib
@@ -10,7 +12,6 @@ from .files import input_hash
 from .proofreading import TypoSuggestion, apply_suggestion, check_typos
 from .ui_tasks import busy, launch, launch_assets, can_queue_asset, queue_asset, asset_activity
 from .asset_sources import read_source, edit_source
-from .media_utils import text_chunks
 from .action_labels import text_action_label, asset_modify_label
 # Imported lazily when opening the shared dialog to avoid UI module cycles.
 
@@ -23,6 +24,16 @@ def detail_prefix(engine, stage, subject):
 def draft_changed(engine, stage, subject, source):
     prefix = detail_prefix(engine, stage, subject)
     saved = source.model_dump_json(by_alias=True, indent=2)
+    if stage != "character_references":
+        baseline = st.session_state.get(prefix+"-baseline",saved)
+        draft = st.session_state.get(prefix+"-draft",baseline)
+        if baseline != saved and draft == baseline:
+            # A clean source view follows canonical edits made on another page.
+            # Preserve an actual unsaved draft and let its concurrency guard run.
+            st.session_state[prefix+"-baseline"] = saved
+            st.session_state[prefix+"-draft"] = saved
+            st.session_state.pop(prefix+"-typos",None)
+            st.session_state.pop(prefix+"-error",None)
     return st.session_state.get(prefix + "-draft", saved) != st.session_state.get(prefix + "-baseline", saved)
 
 
@@ -37,10 +48,14 @@ def character_details(engine, character, record, *, stage="character_references"
     source = {"character_references": "characters", "backgrounds": "world", "scene_images": "prompts", "voices": "storyboard"}[stage]
     prefix = detail_prefix(engine, stage, cid)
     saved = character.model_dump_json(by_alias=True, indent=2)
+    if not is_character:
+        draft_changed(engine,stage,cid,character)
     baseline_key, draft_key, report_key = prefix + "-baseline", prefix + "-draft", prefix + "-typos"
     st.session_state.setdefault(baseline_key, saved)
     st.session_state.setdefault(draft_key, saved)
     baseline = st.session_state[baseline_key]
+    if not is_character and baseline != saved:
+        st.warning("The saved source changed on another page. Your unsaved draft is preserved; Revert all changes loads the latest saved content.")
 
     def reset():
         st.session_state[baseline_key] = saved
@@ -61,7 +76,7 @@ def character_details(engine, character, record, *, stage="character_references"
         st.caption("Source details. Use Edit mode to edit character fields; saving updates related files and affected approvals." if is_character else
                    "Source details. Use Edit JSON to make changes; saving updates related files and affected approvals.")
         if stage == "voices":
-            st.caption("This is the source storyboard scene shared by its speech tracks. Edit narration or dialogue here; style instructions below control delivery without changing spoken text.")
+            st.caption("This is the source storyboard shared by the scene's speech tracks. Character Lines controls this track's saved character and text. Editing this JSON changes the shared storyboard; style instructions control delivery.")
         editing = st.toggle("Edit mode" if is_character else "Edit JSON", key=prefix + ("-edit-mode" if is_character else "-edit-json"),
                             disabled=busy(), on_change=keep_details_open, args=(prefix,))
         draft = st.session_state[draft_key]
@@ -173,7 +188,7 @@ def character_details(engine, character, record, *, stage="character_references"
     return changed
 
 
-def generation_controls(engine, state, stage, subject, has_asset, changed, *, available=True,stable_target=None):
+def generation_controls(engine, state, stage, subject, has_asset, changed, *, available=True,stable_target=None,unavailable_reason=None):
     if stage == "character_references":
         from .visual_generation_ui import generation_section
         generation_section(engine, state, stage, subject, changed=changed, available=available)
@@ -198,7 +213,15 @@ def generation_controls(engine, state, stage, subject, has_asset, changed, *, av
     queueable = can_queue_asset(engine, stage, subject)
     if queueable:
         label = "Queue asset"
+    if stage == "scene_images":
+        from .action_labels import action_label
+        from .scene_image_references import SCENE_IMAGE_MODEL
+        label = action_label(label,"demo" if engine.demo else "openai",SCENE_IMAGE_MODEL)
     def generate_current():
+        if stable_target and stage == "scene_images":
+            from .scene_image_cards_ui import request_generation
+            request_generation(engine,subject,has_asset,stable_target)
+            return
         if busy():
             if not stable_target:
                 queue_asset(engine, stage, subject, force=has_asset)
@@ -210,19 +233,32 @@ def generation_controls(engine, state, stage, subject, has_asset, changed, *, av
                         running["asset_engine"].enqueue(stage,subject,force=has_asset)
                     return
         task = launch_assets(engine, lambda: engine.generate(stage, subject=subject, force=has_asset), f"Generating {subject}",
-            rerun_on_start=not bool(stable_target), service="openai" if stage == "character_references" else None)
+            rerun_on_start=not bool(stable_target), service="openai" if stage in ("character_references","scene_images") else None)
         if task and stable_target:
-            task.update(scene_image_project=engine.project_id,asset_subject=subject)
-    clicked = generation_button(label, key=f"retry-asset-{key}", disabled=changed or (not queueable if busy() else not available),
-                         activity=asset_activity(engine, stage, subject), container=generate,
+            task.update(scene_image_project=engine.project_id,asset_subject=subject,
+                scene_image_baselines={subject:(record.revision,record.attempts) if record else (0,0)})
+    activity = asset_activity(engine,stage,subject)
+    if stable_target and stage == "scene_images":
+        from .scene_image_cards_ui import scene_phase
+        activity = scene_phase(engine,subject,record)
+    reason = ("Save or revert the source draft before generating this asset." if changed else
+              "Wait for the current task to finish. This button will enable automatically." if busy() and not queueable else
+              unavailable_reason if not available else None)
+    clicked = generation_button(label, key=f"retry-asset-{key}", disabled=changed or (not queueable if busy() else not available),help=reason,
+                         activity=activity, container=generate,
                          **({"on_click":generate_current} if stable_target else {}))
     if clicked and not stable_target:
         generate_current()
     if changed:
         st.caption("Save or revert the source draft before generating this asset.")
+    elif reason and stable_target and not activity:
+        st.caption("Cannot generate: "+reason)
     if record and key in state.asset_modifications and stage in ("character_references", "backgrounds", "scene_images"):
         from .visual_generation import DESIGN_MODEL
         configured = "Demo (offline)" if engine.demo else f"openai / {DESIGN_MODEL}" if stage == "character_references" else f"{engine.settings.image_provider} / {engine.settings.image_model}"
+        if stage == "scene_images" and not engine.demo:
+            from .scene_image_references import SCENE_IMAGE_MODEL
+            configured = f"OpenAI / {SCENE_IMAGE_MODEL}"
         st.caption(f"This asset has a saved OpenAI edit. Regenerate / retry uses {configured}; use Modify for another OpenAI image edit.")
 
 
@@ -359,7 +395,7 @@ def character_visual(engine, state, character, *, available):
             path = engine.local_path(record.asset.file_path)
             if path.is_file():
                 has_image = True
-                st.image(str(path), width="stretch")
+                image_preview(str(path), width="stretch")
                 st.download_button("Download", lambda path=path: path.read_bytes(), file_name=path.name, key=f"download-asset-{key}")
             else:
                 st.warning("The asset image is missing.")
@@ -390,14 +426,9 @@ def asset_cards(engine, state, stage):
             items = [(scene.scene_id, scene.visual_description, read_source(engine.creative, stage, scene.scene_id))
                      for scene in engine.creative.artifact("storyboard").scenes]
         else:
-            items = []
-            for scene in engine.creative.artifact("storyboard").scenes:
-                lines = ([("narrator", scene.narration)] if scene.narration.strip() else [])
-                lines += [(line.character_id, line.text) for line in scene.dialogue]
-                for line_index, (speaker, text) in enumerate(lines):
-                    for chunk_index, chunk in enumerate(text_chunks(text)):
-                        subject = f"{scene.scene_id}_{line_index:04d}_{chunk_index:04d}"
-                        items.append((subject, f"{scene.scene_id} · {speaker}: {chunk}", read_source(engine.creative, stage, subject)))
+            voice_tasks={task.subject:task for task in engine.tasks(state) if task.stage=="voices"}
+            items = [(task.subject,f"{task.scene_id} · {task.speaker}: {task.prompt}",read_source(engine.creative,stage,task.subject))
+                for task in voice_tasks.values()]
     except (OSError, ValueError):
         st.info("Generate the related creative stages to see assets here.")
         return
@@ -416,6 +447,9 @@ def asset_cards(engine, state, stage):
             if record and record.status == "running":
                 st.status("Generating…", state="running")
             st.caption(name)
+            if stage=="voices":
+                from .voice_lines_ui import editor
+                editor(engine,state,subject,task=voice_tasks[subject])
             has_asset = False
             if record and record.asset:
                 try:
@@ -425,7 +459,7 @@ def asset_cards(engine, state, stage):
                         if stage == "voices":
                             st.audio(str(path))
                         else:
-                            st.image(str(path), width="stretch")
+                            image_preview(str(path), width="stretch")
                         st.download_button("Download", path.read_bytes(), file_name=path.name, key=f"download-asset-{key}")
                     else:
                         st.warning("The asset file is missing.")
@@ -445,14 +479,15 @@ def asset_cards(engine, state, stage):
 
 
 @st.fragment
-def revision_browser(engine, stage, subject, *, apply_callback=None, apply_hint=None, launch_callback=None, in_dialog=False, allow_apply=True):
+def revision_browser(engine, stage, subject, *, apply_callback=None, apply_hint=None, launch_callback=None, in_dialog=False, allow_apply=True, allow_delete=True):
     state = engine.load()
     current = state.records.get(f"{stage}:{subject}")
     prefix = f"reference-revisions-{engine.project_id}-{stage}-{subject}"
     current_id = current.asset.asset_id if current and current.asset else None
     gate = "characters" if stage == "character_references" else "backgrounds"
     approval = engine.character_approved(subject, state) if stage == "character_references" else engine.manager.load(engine.project_id).asset_approvals.get(gate)
-    st.caption("Approval: Approved" if approval and current and current.status == "succeeded" else "Approval: Needs approval after generating or applying a revision")
+    if stage != "scene_images":
+        st.caption("Approval: Approved" if approval and current and current.status == "succeeded" else "Approval: Needs approval after generating or applying a revision")
     panel = st.container() if in_dialog else st.expander("View / apply saved revisions", key=prefix + "-panel", on_change="rerun")
     if not in_dialog and not panel.open:
         return
@@ -466,14 +501,14 @@ def revision_browser(engine, stage, subject, *, apply_callback=None, apply_hint=
             st.session_state.pop(prefix + "-choice", None)
         def label(asset_id):
             record = choices[asset_id]
-            return f"Revision {record.revision}" + (" · Active" if asset_id == current_id else "")
+            return revision_label(record) + (" · Active" if asset_id == current_id else "")
         selected = st.selectbox("Preview revision", list(choices), format_func=label,
                                 key=prefix + "-choice", disabled=busy())
         record = choices[selected]
         st.caption(f"Revision {record.revision} · {record.status} · {record.asset.provider} / {record.asset.model}")
         intact = engine._intact(record)
         if intact:
-            st.image(str(engine.local_path(record.asset.file_path)), caption=label(selected), width="stretch")
+            image_preview(str(engine.local_path(record.asset.file_path)), caption=label(selected), width="stretch")
         else:
             st.warning("This revision's file is missing or modified and cannot be applied.")
         st.caption(apply_hint or "Previewing does not change the active image. Apply selects this image for the current settings and requires a new reference approval. Applying does not call a generation API.")
@@ -507,7 +542,8 @@ def revision_browser(engine, stage, subject, *, apply_callback=None, apply_hint=
                 owner = BackgroundLibrary(engine).subject_id(subject) if stage == "backgrounds" else subject
                 task.update(asset_subject=owner, generation_button_project=engine.project_id,
                             ui_owned_asset_project=engine.project_id)
-        st.button("Delete revision", key=prefix + "-delete", disabled=busy(), on_click=delete)
-        st.caption("Remaining revisions are renumbered from 1. Deleting the active revision clears its selection and requires a replacement and approval. Existing episode media is retained.")
+        if allow_delete:
+            st.button("Delete revision", key=prefix + "-delete", disabled=busy(), on_click=delete)
+            st.caption("Remaining revisions are renumbered from 1. Deleting the active revision clears its selection and requires a replacement and approval. Existing episode media is retained.")
         with st.expander("Revision generation details", expanded=in_dialog):
             st.json(record.asset.model_dump(mode="json", by_alias=True))

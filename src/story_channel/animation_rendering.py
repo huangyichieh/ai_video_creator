@@ -43,7 +43,7 @@ class ShotRenderer:
     def render(self, scene, production, options, destination, *, force=False):
         if options.provider not in ("openai", "runway") or options.generation_mode != "image":
             raise ValueError("Continuity animation requires OpenAI image-to-video; local preview and text-only modes do not enforce identity references")
-        state = self.director.require_ready()
+        state = self.director.require_ready(scene.scene_id)
         board = self.director.assets.creative.artifact("storyboard").scenes
         pack = self.director.references()
         from .location_references import LocationReferenceResolver, camera_segments

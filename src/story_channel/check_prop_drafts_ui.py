@@ -1,4 +1,5 @@
 """Collapsed shared prop editors beneath the episode's Props checklist."""
+from .image_preview_ui import image_preview
 import streamlit as st
 
 from .files import input_hash
@@ -57,7 +58,7 @@ def visual_preview(media,pid,mode,approval=False):
     version = selected(media.load(),pid,mode)
     ready = intact(media,version)
     if ready:
-        st.image(str(media.assets.local_path(version["asset"]["filePath"])),width=320)
+        image_preview(str(media.assets.local_path(version["asset"]["filePath"])),width=320)
         st.caption("Revision "+str(version["revision"]))
         if origin := version.get("reusedFrom"):
             st.caption("Reused from "+origin["mode"]+" · revision "+str(origin["revision"]))

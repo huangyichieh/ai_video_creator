@@ -11,6 +11,34 @@ from test_scene_production import episode
 from test_studio import world
 
 
+def test_production_scene_images_use_openai_and_keep_full_asset_references(episode,monkeypatch):
+    from story_channel.media_providers import OpenAIImageProvider
+    from story_channel.scene_image_references import SCENE_IMAGE_MODEL
+    world,project,pipeline = episode
+    from story_channel.check_asset_sync import synchronize
+    synchronize(world.manager,project.project_id)
+    # The fixture's approved reference pack was made in Demo mode. Resolve its
+    # frozen references there, then verify the production provider/config route.
+    source_engine = AssetPipeline(world.manager,project.project_id)
+    state = source_engine.load()
+    task = next(task for task in source_engine.tasks(state) if task.stage == "scene_images")
+    engine = AssetPipeline(world.manager,project.project_id,demo=False)
+    assert engine.settings.image_provider == "runway"  # General provider does not control scene stills.
+    config = engine._config(task,state)
+    assert (config.provider,config.model) == ("openai",SCENE_IMAGE_MODEL)
+    assert SCENE_IMAGE_MODEL == "gpt-image-2.5-sunburst"
+    assert isinstance(engine._provider_for(task,state),OpenAIImageProvider)
+    assert engine.parallel_limit("scene_images") == 2
+    def forbidden(*args,**kwargs):
+        raise AssertionError("OpenAI scene prompts must not be shortened for Runway")
+    monkeypatch.setattr("story_channel.provider_prompts.compile_prompt",forbidden)
+    task.prompt += "\n"+"Detailed camera and cast instructions. "*60
+    prompt,references = request(engine,state,task,config,runway=True)  # A stale adapter hint cannot impose Runway limits.
+    assert LOCK in prompt
+    assert len(references) == len(config.options["sceneAssetReferences"])
+    assert {item["role"] for item in config.options["scene_reference_roles"]} >= {"character","background"}
+
+
 def prepare(episode):
     world,project,pipeline = episode
     from test_storyboard_prop_removal import setup
@@ -68,6 +96,7 @@ def test_shortened_runway_scene_prompt_keeps_asset_lock_and_roles(episode,monkey
     state = engine.load()
     task = next(task for task in engine.tasks(state) if task.stage == "scene_images")
     config = engine._config(task,state)
+    config.provider,config.model = "runway","gen4_image"  # Explicit legacy adapter coverage only.
     limits = []
     def compact(pipeline,text,**kwargs):
         limits.append(kwargs["max_units"])

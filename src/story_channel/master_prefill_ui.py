@@ -1,4 +1,5 @@
 """Visible local input canvases before AI master completion."""
+from .image_preview_ui import image_preview
 import streamlit as st
 
 
@@ -19,7 +20,7 @@ def previews(engine,lid):
                 st.markdown("**North master input**" if name == MASTERS[0] else "**South master input**")
                 try:
                     metadata = prepare(engine,state,lid,name)
-                    st.image(str(engine.local_path(metadata["canvas"])),caption="Actual input canvas · 2560 × 1440")
+                    image_preview(str(engine.local_path(metadata["canvas"])),caption="Actual input canvas · 2560 × 1440")
                     total = metadata["knownPixelCount"]+metadata["unknownPixelCount"]
                     st.caption(f"Known: {metadata['knownPixelCount']/total:.0%} · Unknown: {metadata['unknownPixelCount']/total:.0%}")
                     for region in metadata["overlaps"]:

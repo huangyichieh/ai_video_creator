@@ -1,3 +1,4 @@
+from .image_preview_ui import image_preview
 import streamlit as st
 import pandas as pd
 from .storyboard_asset_check import check,GROUPS
@@ -108,7 +109,7 @@ def render(manager,project_id,rows=None,*,allow_animation=True):
                         if group in ("BGM","SFX"):
                             st.audio(str(file))
                         else:
-                            st.image(str(file),width=400)
+                            image_preview(str(file),width=400)
                     if not row["Ready"]:
                         st.caption("Create this asset or refresh shared assets to make it ready.")
             if group == "Background":

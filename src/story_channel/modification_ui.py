@@ -1,3 +1,4 @@
+from .image_preview_ui import image_preview
 from .dialog_ui import dialog
 """One prompt dialog shared by text, structured sources, images and speech."""
 import streamlit as st
@@ -84,7 +85,7 @@ def modification_dialog(manager, target):
                     st.audio(str(path))
                     st.caption("Voice edits re-synthesize the current words with your requested delivery. Edit source JSON to change the spoken words.")
                 else:
-                    st.image(str(path), width="stretch")
+                    image_preview(str(path), width="stretch")
     else:
         with st.expander("Current saved content"):
             if stage == "outline":

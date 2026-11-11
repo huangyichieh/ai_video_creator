@@ -1,4 +1,6 @@
 """Shared prompts, review and revision controls for complete location reference sets."""
+from .image_preview_ui import image_preview
+from .revision_labels import revision_label
 import streamlit as st
 
 from .dialog_ui import dialog,Deferred,request_open
@@ -86,7 +88,7 @@ def revision_dialog(engine,lid,group):
         st.info("No complete saved reference sets yet.")
     else:
         selected = st.selectbox("Reference revision",range(len(saved)),
-            format_func=lambda index:f"Revision {len(saved)-index} · "+" / ".join(
+            format_func=lambda index:revision_label(saved[index],len(saved)-index)+" · "+" / ".join(
                 f"{name}: r{saved[index]['records'][name].revision}" for name in names(group)),
             key=f"location-pair-revision-choice-{engine.project_id}-{lid}-{group}")
         item = saved[selected]
@@ -95,7 +97,7 @@ def revision_dialog(engine,lid,group):
             column = columns[index % 2]
             with column:
                 record = item["records"][name]
-                st.image(str(engine.local_path(record.asset.file_path)),caption=name)
+                image_preview(str(engine.local_path(record.asset.file_path)),caption=name)
                 with st.expander("Generation details",expanded=False):
                     st.json(record.asset.generation_params)
         state = engine.load()
@@ -129,8 +131,8 @@ def revision_dialog(engine,lid,group):
                         if not records:
                             continue
                         choice = st.selectbox(name,range(len(records)),
-                            format_func=lambda i,records=records:f"Revision {records[i].revision}",key="historical-master-"+name)
-                        st.image(str(engine.local_path(records[choice].asset.file_path)),caption=name)
+                            format_func=lambda i,records=records:revision_label(records[i]),key="historical-master-"+name)
+                        image_preview(str(engine.local_path(records[choice].asset.file_path)),caption=name)
     legacy = {name:[record for record in engine.revisions("backgrounds",lid+"__"+name)
                     if record.asset and not record.asset.generation_params.get("locationPairId") and engine._intact(record)]
               for name in names(group)}
@@ -144,11 +146,11 @@ def revision_dialog(engine,lid,group):
                 with column:
                     records = legacy[name]
                     identity = st.selectbox(name,[record.asset.asset_id for record in records],
-                        format_func=lambda identity,records=records:"Revision "+str(next(record.revision for record in records if record.asset.asset_id == identity)),
+                        format_func=lambda identity,records=records:revision_label(next(record for record in records if record.asset.asset_id == identity)),
                         key=f"legacy-pair-choice-{engine.project_id}-{lid}-{name}")
                     selection[name] = identity
                     record = next(record for record in records if record.asset.asset_id == identity)
-                    st.image(str(engine.local_path(record.asset.file_path)),caption=name)
+                    image_preview(str(engine.local_path(record.asset.file_path)),caption=name)
             legacy_message_key = f"legacy-pair-message-{engine.project_id}-{lid}-{group}"
             def apply_legacy_selected():
                 from .location_pairs import apply_legacy

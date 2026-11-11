@@ -1,4 +1,5 @@
 """Voice and costume controls for one shared character card."""
+from .image_preview_ui import image_preview
 from .generation_ui import generation_button
 import streamlit as st
 
@@ -186,5 +187,5 @@ def costume_card(engine, media, identity, character, costume):
             current = ready and visual_current(media, saved, key, signature)
             st.caption(f"Revision {latest['revision']} · " + ("Current" if current else "Outdated — generate or apply a saved model sheet"))
             if path.is_file():
-                st.image(str(path), width=320)
+                image_preview(str(path), width=320)
         costume_revisions(engine, media, character.character_id, costume.costume_id)

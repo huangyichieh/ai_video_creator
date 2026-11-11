@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -12,6 +13,25 @@ from story_channel.media_utils import silence, wav_duration
 from story_channel.models import ProviderConfig
 from story_channel.llm import ProviderError, TransientProviderError
 from story_channel.providers import AlignmentProvider, ImageProvider, TTSProvider
+
+
+def test_image_edit_sends_selected_scene_first_in_real_sdk_multipart(tmp_path):
+    selected,support=tmp_path/"selected.png",tmp_path/"support.png"
+    Image.new("RGB",(64,64),"red").save(selected)
+    Image.new("RGB",(64,64),"blue").save(support)
+    requests=[]
+    def handler(request):
+        body=request.read()
+        assert request.url.path.endswith("/images/edits")
+        assert body.index(selected.read_bytes())<body.index(support.read_bytes())
+        assert b"input_fidelity" not in body  # No unsupported parameter for the current model.
+        requests.append(request)
+        return httpx.Response(200,json={"created":1,"data":[{"b64_json":base64.b64encode(selected.read_bytes()).decode()}]})
+    with OpenAI(api_key="test-only",max_retries=0,http_client=httpx.Client(transport=httpx.MockTransport(handler))) as client:
+        from story_channel.scene_image_references import SCENE_IMAGE_MODEL
+        result=OpenAIImageProvider(client).generate("Edit Image 1, preserve unrelated details",[selected,support],
+            ProviderConfig(provider="openai",model=SCENE_IMAGE_MODEL,options={"output_path":str(tmp_path/"result.png")}))
+    assert len(requests)==1 and Path(result.file_path).read_bytes()==selected.read_bytes()
 
 
 def test_media_adapters_use_real_sdk_with_mock_http(tmp_path):

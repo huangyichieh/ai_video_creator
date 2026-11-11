@@ -690,8 +690,16 @@ class Episodes:
                     atomic_write(destination, text)
             for field in ("generic_prompt", "style_reference", "style_reference_hash", "style_references", "provider_mode", "per_asset_references", "character_prompt_version"):
                 setattr(state, field, getattr(source, field))
-            state.style_prompts.update({key: value for key, value in source.style_prompts.items() if key.startswith(("character_references:", "backgrounds:"))})
-            state.asset_modifications.update({key: value.model_copy(deep=True) for key, value in source.asset_modifications.items() if key.startswith(("character_references:", "backgrounds:"))})
+            # Shared reference inputs are authoritative, including removals.
+            # update() retained obsolete episode edits when the World cleared
+            # an edit during regeneration, making an intact imported image stale.
+            shared_prefixes = ("character_references:", "backgrounds:")
+            state.style_prompts = {
+                **{key:value for key,value in state.style_prompts.items() if not key.startswith(shared_prefixes)},
+                **{key:value for key,value in source.style_prompts.items() if key.startswith(shared_prefixes)}}
+            state.asset_modifications = {
+                **{key:value for key,value in state.asset_modifications.items() if not key.startswith(shared_prefixes)},
+                **{key:value.model_copy(deep=True) for key,value in source.asset_modifications.items() if key.startswith(shared_prefixes)}}
             state.voice_map.update(source.voice_map)
             if parent.shared_style_enabled(source):
                 for reference in source.style_references:

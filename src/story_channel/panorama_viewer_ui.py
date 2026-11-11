@@ -1,4 +1,5 @@
 """Inspect a single panorama in a browser sphere; no derived image files."""
+from .image_preview_ui import image_preview
 import base64
 from io import BytesIO
 
@@ -13,7 +14,7 @@ def seam_preview(path):
         image = ImageChops.offset(image, image.width // 2, 0)
         data = BytesIO()
         image.save(data, "JPEG", quality=90)
-    st.image(data.getvalue(), caption="Start/end join is at the CENTER. Check that walls, shelves, floor and ceiling continue across it.")
+    image_preview(data.getvalue(), caption="Start/end join is at the CENTER. Check that walls, shelves, floor and ceiling continue across it.")
 
 
 def panorama_viewer(path):

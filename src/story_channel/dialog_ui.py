@@ -51,8 +51,16 @@ def show_pending_dialog():
         from .api_keys_ui import api_key_dialog
         api_key_dialog()
     elif manager is not None:
-        target = st.session_state.get("delete-project-target")
-        if target:
+        if target := st.session_state.get("scene-keyframes-target"):
+            from .scene_keyframes_ui import show
+            show(manager,target)
+        elif target := st.session_state.get("scene-video-extend-target"):
+            from .scene_video_extension_ui import show
+            show(manager,target)
+        elif target := st.session_state.get("scene-video-modify-target"):
+            from .scene_video_modify_ui import show
+            show(manager,target)
+        elif target := st.session_state.get("delete-project-target"):
             from .project_deletion_ui import delete_dialog
             delete_dialog(manager, target)
         elif target := st.session_state.get("remove-episode-target"):
@@ -78,6 +86,15 @@ def show_pending_dialog():
             show(manager,target)
         elif target := st.session_state.get("storyboard-prop-removal-target"):
             from .storyboard_prop_removal_ui import show
+            show(manager,target)
+        elif target := st.session_state.get("storyboard-split-target"):
+            from .storyboard_split_ui import show
+            show(manager,target)
+        elif target := st.session_state.get("storyboard-scene-removal-target"):
+            from .storyboard_scene_removal_ui import show
+            show(manager,target)
+        elif target := st.session_state.get("storyboard-scene-insertion-target"):
+            from .storyboard_scene_insertion_ui import show
             show(manager,target)
         elif target := st.session_state.get("layout-modify-target"):
             from .location_layout_modify_ui import show

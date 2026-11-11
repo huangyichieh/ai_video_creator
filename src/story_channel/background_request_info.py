@@ -1,4 +1,5 @@
 """Inspect recorded generation inputs without substituting current settings."""
+from .image_preview_ui import image_preview
 import json
 import streamlit as st
 
@@ -61,7 +62,7 @@ def render(engine, info):
             draft = engine.local_path(fill["draftImage"])
             if file_hash(draft) != fill["draftHash"]:
                 raise ValueError("The saved draft changed after generation.")
-            st.image(str(draft), caption="Black regions are missing pixels to complete; other pixels are reprojected from the previous yaw.")
+            image_preview(str(draft), caption="Black regions are missing pixels to complete; other pixels are reprojected from the previous yaw.")
         except (OSError, ValueError) as exc:
             st.caption(str(exc))
         st.markdown("**Source image and transform parameters**")
@@ -97,7 +98,7 @@ def render(engine, info):
                 raise ValueError("Recorded reference image is missing.")
             if expected and file_hash(path) != expected:
                 raise ValueError("This reference file changed after generation; it is not the recorded input.")
-            st.image(str(path))
+            image_preview(str(path))
             if not expected:
                 st.caption("This older revision did not record a reference-image hash.")
         except (OSError, ValueError) as exc:

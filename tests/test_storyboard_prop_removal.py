@@ -45,7 +45,9 @@ def test_removes_only_selected_episode_dependencies_and_adapts_text(episode,mode
     assert "storyboard" in current.approvals and current.steps["storyboard"].status == "succeeded"
     assert current.approvals["storyboard"].content_hash != approval_before.content_hash
     assert "retained after scoped prop removal" in current.approvals["storyboard"].note
-    assert "prompts" not in current.content_approvals
+    # Inspect automatically recompiles prompts for an approved episode board.
+    assert current.steps["prompts"].status == "succeeded"
+    assert current.content_approvals["prompts"].content_hash == current.steps["prompts"].output_hash
     assert CostTracker(pipeline.manager,project.project_id).records()[-1].outcome == "succeeded"
 
 

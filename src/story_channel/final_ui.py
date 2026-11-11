@@ -26,7 +26,7 @@ def render_workspace(manager, project_id, *, animations=False, show_scene_review
         launch_render(engine, callback, label)
 
     st.caption("Compose approved visuals with voices, subtitles and effects, then review the finished scenes below." if animations and episode_composition else
-               "Generate individual scenes / shots here; review and approve them in Scene review & continuity." if animations else "Assemble approved scenes into a finished publishable video. Final assembly does not call generation APIs.")
+               "Generate individual scenes / shots here; review and approve the finished scenes below on Final." if animations else "Assemble approved scenes into a finished publishable video. Final assembly does not call generation APIs.")
     if animations and show_settings:
         video_settings(engine, state, project_id, animations=True)
     if animations:
@@ -109,10 +109,11 @@ def assembly_progress_panel(engine):
 
 
 
-def video_settings(engine, state, project_id, *, animations):
+def video_settings(engine, state, project_id, *, animations, refresh_target=None):
     from .ui_panels import persistent_expander
     with persistent_expander("Video settings" if animations else "Compositing & Output settings",
-        key=f"render-settings-panel-{engine.project_id}-{animations}", expanded=not bool(state.final_file)):
+        key=f"render-settings-panel-{engine.project_id}-{animations}", expanded=not bool(state.final_file),
+        on_change=(lambda:st.rerun(scope=refresh_target)) if refresh_target else "rerun"):
         with st.container():
             options = state.options
             left, right = st.columns(2)
@@ -163,7 +164,7 @@ def video_settings(engine, state, project_id, *, animations):
             font_size = number(left, "Subtitle font size", options.font_size, 8, 100, 1)
             transition_seconds = number(right, "Fade duration (seconds)", options.transition_seconds, 0., 2., .05)
             music = check(left, "Background music", options.music)
-            sfx = check(right, "Sound effects", options.sfx)
+            sfx = check(right, "SFX", options.sfx)
             duck = check(left, "Lower music while voices speak", options.duck_music)
             normalize = check(right, "Normalize voice loudness", options.normalize_voice)
             continuity_animation = check(left, "Continuity animation (approved shots and voices)", options.continuity_animation) if animations else options.continuity_animation
@@ -216,7 +217,12 @@ def final_page(manager, project_id):
         engine = RenderPipeline(manager, project_id)
         state = engine.load()
         st.subheader("Timeline & Compositing")
-        st.caption("Scene order and durations follow the approved storyboard and voice tracks. Generate and approve scenes on Animations before assembly.")
+        st.caption("Scene order and durations follow the approved storyboard and voice tracks. Compose and review the finished scenes here before assembly.")
+        render_workspace(manager,project_id,animations=True,show_settings=False,show_effects=False)
+        state=engine.load()
+        if state.options.continuity_animation and not manager.load(project_id).world_project_id:
+            from .animation_ui import animation_continuity
+            animation_continuity(engine)
         rows = []
         cursor = 0.
         for record in state.scenes.values():
@@ -234,9 +240,11 @@ def final_page(manager, project_id):
         show_subtitle_progress(subtitle_engine, subtitle_state)
         show_subtitle_scenes(subtitle_engine, subtitle_state)
     with tabs[2]:
-        st.caption("Changes to mix levels, subtitles or transitions require recomposing and approving affected scene previews on Animations. Cached source clips are reused.")
+        st.caption("Changes to mix levels, subtitles or transitions require recomposing and approving affected scene previews on Timeline & Compositing. Cached source clips are reused.")
         video_settings(engine, state, project_id, animations=False)
         sound_plan(engine, state, project_id)
+        from .finishing_ui import finishing_panel
+        finishing_panel(engine,state,section="video")
     with tabs[3]:
         render_workspace(manager, project_id)
         st.markdown("**Final render - Long-form output**")

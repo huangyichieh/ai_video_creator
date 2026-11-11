@@ -1,4 +1,5 @@
 """Shared room build/review and exact-angle preview controls."""
+from .image_preview_ui import image_preview
 import json
 
 import streamlit as st
@@ -60,7 +61,7 @@ def outputs(engine,lid):
     if asset_activity(engine,"backgrounds",subject) == "running":
         loading_result("Rendering shared 3D room…")
     elif source:
-        st.image(str(engine.local_path(source.asset.file_path)),caption="One rendered 360° × 180° panorama",width=700)
+        image_preview(str(engine.local_path(source.asset.file_path)),caption="One rendered 360° × 180° panorama",width=700)
         with st.expander("Look around the rendered panorama",expanded=False):
             from .panorama_viewer_ui import panorama_viewer
             panorama_viewer(engine.local_path(source.asset.file_path))
@@ -126,7 +127,7 @@ def outputs(engine,lid):
         generation_button("Generate shot preview",key="project-room-preview-"+lid,disabled=busy() or not approved,on_click=preview)
         result = st.session_state.get(result_key)
         if result and source and isinstance(result,dict) and result.get("sourceAssetId") == source.asset.asset_id:
-            st.image(str(engine.local_path(result["file"])),width=700,
+            image_preview(str(engine.local_path(result["file"])),width=700,
                      caption=f"Yaw {result['yaw']:g}° · pitch {result['pitch']:g}° · FOV {result['fov']:g}°")
         elif result:
             st.caption("The source panorama changed. Generate a new shot preview.")

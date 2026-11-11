@@ -87,8 +87,15 @@ def test_shared_approvals_scene_direction_visual_before_voices_and_reuse(episode
     scene = board[0]
     visual = service.generate_visual(scene.scene_id, options)
     assert visual["status"] == "succeeded"
+    assert visual["approval"]["contentHash"]==visual["sourceHash"]
+    assert service.visual_current(scene.scene_id,options,approved=True)
     assert not engine.load().scenes  # No voice export required to generate motion.
-    service.approve_visual(scene.scene_id, options, expected=service.visual_hash(scene.scene_id, options))
+    # Older successful videos without an approval record are ready as well.
+    from story_channel.files import atomic_write
+    import json
+    legacy=service.visuals()
+    legacy[scene.scene_id]["approval"]=None
+    atomic_write(service.path/"visual_scenes.json",json.dumps(legacy))
     assert service.visual_current(scene.scene_id, options, approved=True)
     work = service.path / "videos" / "fitted.mp4"
     fitted = service.fitted_visual(scene.scene_id, options, scene.duration_sec / 2, work)
@@ -204,7 +211,7 @@ def test_episode_animations_ui_has_asset_check_and_ordered_scene_tabs(episode, m
     app.button(key="nav-animations").click().run()
     assert not app.exception
     labels = [tab.label for tab in app.tabs]
-    assert labels[:8] == ["Check assets", "Scene images", "Direction & performance", "Animated scenes", "Voices & input", "Video effects", "Sound effects", "Scene review & continuity"]
+    assert labels[:8] == ["Check assets", "Scene images", "Direction & performance", "Animated scenes", "Voices & input", "VFX", "SFX", "Scene review & continuity"]
     assert app.button(key=f"animation-input-images-{episode.project_id}")
 
 
@@ -229,12 +236,14 @@ def test_episode_visuals_voices_composition_and_final_remain_separate(episode):
         engine.generate("voices")
     for scene in scenes:
         service.generate_visual(scene.scene_id, options)
-        service.approve_visual(scene.scene_id, options, expected=service.visual_hash(scene.scene_id, options))
+        assert service.visual_current(scene.scene_id,options,approved=True)
     for stage in ("voices", "subtitles", "consistency"):
         engine.generate(stage)
     engine.approve("assets")
     from story_channel.costs import CostTracker
     video_calls = [r.record_id for r in CostTracker(world.manager, episode.project_id).records() if r.video_seconds]
+    from story_channel.animations_workflow import animation_snapshot
+    assert animation_snapshot(renderer)[0].stage=='ai_continuity_review'
     state = renderer.generate_scenes()
     assert state.final_file is None
     assert all(sound.bgm_file for sound in state.music_plan.scenes.values())
@@ -242,6 +251,13 @@ def test_episode_visuals_voices_composition_and_final_remain_separate(episode):
     assert all(record.status == "succeeded" for record in state.scenes.values())
     assert [r.record_id for r in CostTracker(world.manager, episode.project_id).records() if r.video_seconds] == video_calls
     renderer.approve_scenes(list(state.scenes))
+    from story_channel.scene_continuity_review import review
+    class Reviewer:
+        last_usage={}
+        def generate(self,prompt,model,config):
+            return model(summary='Visual continuity reviewed.',issues=[])
+    review(renderer,provider=Reviewer())
+    assert animation_snapshot(renderer)[0].stage=='complete'
     final = renderer.assemble_final()
     assert final.final_file and renderer.assets.local_path(final.final_file).exists()
     assert final.status == "review" and not final.approval
@@ -289,7 +305,7 @@ def test_talking_sample_reuses_audio_after_failed_video_and_generates_single_por
             sample["audioAsset"]["provider"] = world.manager.settings.tts_provider
             sample["audioAsset"]["model"] = world.manager.settings.tts_model
     media.save(state)
-    media.assets.image_provider = Image()
+    media.assets.character_image_provider = Image()
     monkeypatch.setattr("story_channel.balanced_providers.KlingVideoProvider", Video)
     monkeypatch.setattr("story_channel.voice_validation.validate_provider_voice", lambda *a, **kw: None)
     compiled = []

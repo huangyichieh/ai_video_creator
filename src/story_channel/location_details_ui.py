@@ -1,4 +1,5 @@
 """Optional area references stay separate from the two required masters."""
+from .image_preview_ui import image_preview
 import streamlit as st
 
 from .background_assets_ui import launch_background
@@ -56,7 +57,7 @@ def camera_fields(spec,key,camera=None,*,engine=None,lid=None,identity=None):
                         if not path.is_file():
                             path.parent.mkdir(parents=True,exist_ok=True)
                             render_pose(spec,setup,fov,path)
-                        st.image(str(path),width=360)
+                        image_preview(str(path),width=360)
                         st.caption("Local perspective preview, with no API charge. Match the framing, not the flat colors or solid proxy shapes. Missing object heights and schematic positions are approximate.")
                     except (OSError,ValueError) as exc:
                         st.warning("Camera preview unavailable: "+str(exc))
@@ -199,7 +200,7 @@ def render(engine,lid,*,only=None,default_expanded=None,scope=""):
                 elif path and path.is_file():
                     if draft:
                         st.caption("Previous generated image; generate this draft to apply its changes.")
-                    st.image(str(path),width=360)
+                    image_preview(str(path),width=360)
                     from .detail_zoom_ui import open_zoom
                     st.button("Zoom",key=prefix+"-zoom-"+identity,disabled=not usable or not ready or generation_busy(),
                         help="Select an area and regenerate it as a detailed close-up.",
@@ -226,7 +227,7 @@ def render(engine,lid,*,only=None,default_expanded=None,scope=""):
                         with guide_panel:
                             guide_path = engine.local_path(pose["file"])
                             if guide_path.is_file():
-                                st.image(str(guide_path),width=360)
+                                image_preview(str(guide_path),width=360)
                             camera = pose["camera"]
                             st.caption(f"Height {camera['position']['heightMeters']:g} m · tilt {camera['pitchDegrees']:g}° · FOV {camera['horizontalFovDegrees']:g}°. Geometry guide only; object details and inferred heights are approximate.")
     target = st.session_state.get("remove-location-detail-target")

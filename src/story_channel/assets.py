@@ -42,6 +42,7 @@ class Task:
     chunk_count: int = 1
     operation: str = ""
     audio_tags: list[str] = field(default_factory=list)
+    voice_line_source_hash: str = ""
 
     @property
     def key(self):
@@ -71,6 +72,7 @@ class AssetPipeline:
         self.image_provider = image_provider or (DemoImageProvider() if self.demo else balanced_providers.image_provider(self.settings))
         self.panorama_image_provider = self.image_provider if self.demo or image_provider is not None else OpenAIImageProvider(timeout=self.settings.llm_timeout_sec)
         self.character_image_provider = self.panorama_image_provider
+        self.scene_image_provider = self.panorama_image_provider
         self.tts_provider = tts_provider or (DemoTTSProvider() if self.demo else balanced_providers.tts_provider(self.settings))
         self.alignment_provider = alignment_provider or (DemoAlignmentProvider() if self.demo else OpenAIAlignmentProvider(timeout=self.settings.llm_timeout_sec))
         from .background_panorama import PanoramaViewProvider
@@ -86,7 +88,7 @@ class AssetPipeline:
         if self.demo:
             return self.max_tasks
         from .service_limits import LIMITS
-        service = self.settings.tts_provider if stage == "voices" else "openai" if stage == "subtitles" else "openai" if stage == "character_references" else self.settings.image_provider
+        service = self.settings.tts_provider if stage == "voices" else "openai" if stage in ("subtitles","character_references","scene_images") else self.settings.image_provider
         return min(self.max_tasks, LIMITS.get(service, self.max_tasks))
 
     def load(self):
@@ -267,8 +269,10 @@ class AssetPipeline:
                     # Direction stays out of spoken text, subtitles and alignment.
                     task.audio_tags = (scene.narration_audio_tags if speaker == "narrator" else
                                        scene.dialogue[task.line_index].audio_tags)
+                    from .voice_lines import apply_override
+                    apply_override(task,state,cast)
                     tasks.append(task)
-                    tasks.append(Task("subtitles", subject, chunk, scene.scene_id, [task.key], voice_id=voice, speaker=speaker))
+                    tasks.append(Task("subtitles", subject, task.prompt, scene.scene_id, [task.key], voice_id=task.voice_id, speaker=task.speaker))
         return tasks
 
     def _config(self, task, state):
@@ -299,6 +303,9 @@ class AssetPipeline:
             if task.stage == "scene_images":
                 from .scene_image_references import manifest as scene_manifest
                 options["sceneAssetReferences"] = scene_manifest(self,state,task)
+                scene = next(item for item in self.creative.artifact("storyboard").scenes if item.scene_id == task.subject)
+                options["storyboardScene"] = scene.model_dump(mode="json",by_alias=True)
+                options["storyboardSceneHash"] = input_hash(options["storyboardScene"])
                 from .animation_formats import saved_options,delivery_formats,PORTRAIT
                 animation_options = saved_options(self.path)
                 if animation_options and animation_options.delivery_formats:
@@ -357,6 +364,9 @@ class AssetPipeline:
         if task.stage == "character_references" and not modification:
             from .visual_generation import DESIGN_MODEL
             provider, model = "demo" if self.demo else "openai", DESIGN_MODEL
+        if task.stage == "scene_images" and not modification:
+            from .scene_image_references import SCENE_IMAGE_MODEL
+            provider,model = "demo" if self.demo else "openai",SCENE_IMAGE_MODEL
         if task.operation in ("location_panorama","simple_location"):
             from .dual_panorama import PANORAMA_MODEL
             provider, model = "demo" if self.demo else "openai", PANORAMA_MODEL
@@ -686,8 +696,8 @@ class AssetPipeline:
             from .rendering import RenderPipeline
             options = RenderPipeline(self.manager, self.project_id).load().options
             service = SceneProduction(self.manager, self.project_id)
-            if not all(service.visual_current(s.scene_id, options, approved=True) for s in self.creative.artifact("storyboard").scenes):
-                raise ApprovalRequired("Generate and approve animated scenes before Voices & input.")
+            if not all(service.visual_current(s.scene_id, options) for s in self.creative.artifact("storyboard").scenes):
+                raise ApprovalRequired("Generate the current animated scenes before Voices & input.")
         if manifest.world_project_id and stage == "scene_images":
             from .location_references import LocationReferenceResolver
             production = self.load()
@@ -844,9 +854,8 @@ class AssetPipeline:
                         prompt,references = request(self,state,task)
                     elif task.stage == "scene_images":
                         from .scene_image_references import request as scene_request
-                        from .balanced_providers import RunwayImageProvider
                         modification = state.asset_modifications.get(task.key)
-                        prompt,references = scene_request(self,state,task,config,runway=isinstance(provider,RunwayImageProvider))
+                        prompt,references = scene_request(self,state,task,config,runway=config.provider == "runway")
                     elif spec:
                         modification = state.asset_modifications.get(task.key)
                         if modification:
@@ -1015,7 +1024,7 @@ class AssetPipeline:
                     record.file_hash = file_hash(path)
                     record.input_hash = fingerprint
                     record.applied_input_hash = ""
-                    if task.stage in ("character_references", "backgrounds"):
+                    if task.stage in ("character_references", "backgrounds", "scene_images"):
                         record.revision = max([record.revision, *(r.revision for r in self.revisions(task.stage, task.subject))]) + 1
                     else:
                         record.revision += 1
@@ -1306,6 +1315,8 @@ class AssetPipeline:
             return self.modification_tts_provider if task.stage == "voices" else self.modification_image_provider
         if task.stage == "character_references":
             return self.character_image_provider
+        if task.stage == "scene_images":
+            return self.scene_image_provider
         return self.image_provider if task.stage in ASSET_STAGES[:3] else self.tts_provider if task.stage == "voices" else self.alignment_provider
 
     def modify_with_openai(self, stage, subject, instructions, *, expected_asset_id=None):
@@ -1639,18 +1650,26 @@ class AssetPipeline:
         return stage == "backgrounds" and manifest.workflow_version == "world_episode" and not manifest.world_project_id
 
     def can_generate(self, stage, state):
+        return self.generation_blocker(stage,state) is None
+
+    def generation_blocker(self,stage,state):
+        """Use the same generation gates for eligibility and visible explanations."""
         try:
             if self.shared_style_enabled(state) and stage != "character_references" and not self.independent_backgrounds(stage) and not self.has_generic_prompt(state):
-                return False
+                return "Add the required shared style guidance before generating."
             self._style_reference(state)
             self._source()
             self._require_stage(stage, self.manager.load(self.project_id))
             tasks = self.tasks(state)
             manifest = self.manager.load(self.project_id)
             prior = ASSET_STAGES[2:ASSET_STAGES.index(stage)] if manifest.world_project_id else ASSET_STAGES[:ASSET_STAGES.index(stage)]
-            return self.independent_backgrounds(stage) or all(self._stage_done(item,state,tasks) for item in prior)
-        except (OSError, ValueError, RuntimeError):
-            return False
+            if not self.independent_backgrounds(stage):
+                incomplete = [item for item in prior if not self._stage_done(item,state,tasks)]
+                if incomplete:
+                    return "Complete the earlier asset stages: "+", ".join(incomplete)
+            return None
+        except (OSError, ValueError, RuntimeError) as exc:
+            return str(exc) or "Complete this stage's prerequisites before generating."
 
     def set_voice(self, logical_voice, provider_voice):
         provider_voice = provider_voice.strip()

@@ -40,7 +40,7 @@ class AnimationQueue:
         if pipeline and action.stage in ("voices", "subtitles"):
             ordered = ["voices", "subtitles", "consistency"]
             stages = ordered[ordered.index(action.stage):]
-        elif pipeline and action.stage == "effects":
+        elif pipeline and action.stage == "effects" and not self.engine.manager.load(self.engine.project_id).world_project_id:
             stages.append("videos")
         tasks = self.engine.assets.tasks(production.model_copy(deep=True)) if any(stage in ("scene_images", "voices", "subtitles") for stage in stages) else []
         for stage in stages:

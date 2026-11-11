@@ -1,4 +1,5 @@
 """Canonical geometry / appearance pairs and reference-pack review."""
+from .image_preview_ui import image_preview
 import streamlit as st
 
 from .generation_ui import generation_button
@@ -45,7 +46,7 @@ def outputs(engine,lid):
                 elif activity == "queued":
                     st.caption("Queuing…")
                 if record and engine._intact(record):
-                    st.image(str(engine.local_path(record.asset.file_path)),caption=f"{record.status} · revision {record.revision}")
+                    image_preview(str(engine.local_path(record.asset.file_path)),caption=f"{record.status} · revision {record.revision}")
                 else:
                     st.caption("Pending")
                 if record and record.error:

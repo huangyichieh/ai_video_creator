@@ -1,4 +1,4 @@
-"""Per-scene direction review and silent visual generation before voice assembly."""
+"""Editable per-scene direction and silent visual generation before voice assembly."""
 import json
 from uuid import uuid4
 from pathlib import Path
@@ -46,6 +46,34 @@ class SceneProduction:
         except (OSError, ValueError):
             return False
 
+    def direction_ready(self, sid):
+        """A current, complete scene direction needs no separate approval."""
+        try:
+            state = self.director.load(required=True)
+            self.director.validate_plan(state.plan)
+            self.direction_hash(sid)  # Require an intact scene snapshot.
+            return state.enabled and bool(self.direction(sid).shots)
+        except (OSError, ValueError):
+            return False
+
+    def save_direction(self, sid, *, expected, text=None, choice="apply", review_id=None):
+        return self.approve_direction(sid,expected=expected,text=text,choice=choice,review_id=review_id,_approve=False)
+
+    def regenerate_direction(self,sid,*,expected,instructions=""):
+        """Regenerate and save only this scene, preserving other scenes and IDs."""
+        if self.direction_hash(sid)!=expected:
+            raise ValueError("Scene direction or image changed. Reload before regenerating direction.")
+        if self.stop_requested():
+            raise InterruptedError("Stopped before regenerating direction.")
+        review=self.propose(sid,"Regenerate this scene's animation direction from its current storyboard and snapshot. "
+            "Improve action, camera direction, start/end poses and performance while preserving dialogue and scene/shot IDs. "+instructions)
+        if review["sourceHash"]!=expected:
+            raise ValueError("Scene inputs changed. Regenerated direction was not applied.")
+        if self.stop_requested():
+            raise InterruptedError("Stopped before applying regenerated direction. The original direction is retained.")
+        return self.save_direction(sid,expected=expected,
+            text=json.dumps(review["suggested"],ensure_ascii=False),review_id=review["reviewId"])
+
     def proposals(self):
         file = self.path / "scene_direction_reviews.json"
         return json.loads(read_text(file)) if file.exists() else {}
@@ -78,7 +106,7 @@ class SceneProduction:
             atomic_write(self.path / "scene_direction_reviews.json", json.dumps(reviews, ensure_ascii=False, indent=2))
             return review
 
-    def approve_direction(self, sid, *, expected, text=None, choice="revert", review_id=None):
+    def approve_direction(self, sid, *, expected, text=None, choice="revert", review_id=None, _approve=True):
         with project_lock(self.path):
             if self.direction_hash(sid) != expected:
                 raise ValueError("Scene direction or image changed. Review the current scene.")
@@ -99,7 +127,10 @@ class SceneProduction:
                 self.director.save_state(state)
             elif choice != "revert":
                 raise ValueError("Apply or revert the scene direction changes before saving.")
-            state.scene_approvals[sid] = ApprovalRecord(content_hash=self.direction_hash(sid))
+            if _approve:
+                state.scene_approvals[sid] = ApprovalRecord(content_hash=self.direction_hash(sid))
+            else:
+                state.scene_approvals.pop(sid,None)
             self.director.save_state(state)
             reviews = self.proposals()
             if sid in reviews:
@@ -117,9 +148,16 @@ class SceneProduction:
             fields.update({"delivery_formats","portrait_safe_area"})
         if options.provider == "local":
             fields.update({"width", "height", "fps", "motion"})
-        return input_hash({"direction": self.direction_hash(sid), "options": options.model_dump(mode="json", include=fields)})
+        from .scene_keyframe_video import fingerprint
+        value={"direction": self.direction_hash(sid), "options": options.model_dump(mode="json", include=fields)}
+        if signature:=fingerprint(self,sid):
+            value["multiKeyframes"]=signature
+        return input_hash(value)
 
     def visual_current(self, sid, options, *, approved=False):
+        # Compatibility: callers may still request approved=True. An intact,
+        # current successful video is now automatically approved, including
+        # videos saved before automatic approval was introduced.
         record = self.visuals().get(sid)
         try:
             from .animation_formats import delivery_formats
@@ -129,8 +167,7 @@ class SceneProduction:
                     for name in delivery_formats(options))):
                 return False
             return bool(record and record.get("status") == "succeeded" and record["sourceHash"] == self.visual_hash(sid, options)
-                        and file_hash(self.assets.local_path(record["asset"]["filePath"])) == record["fileHash"]
-                        and (not approved or record.get("approval")))
+                        and file_hash(self.assets.local_path(record["asset"]["filePath"])) == record["fileHash"])
         except (OSError, ValueError, KeyError):
             return False
 
@@ -141,12 +178,14 @@ class SceneProduction:
         from .balanced_providers import video_provider
         from .video_providers import LocalVideoProvider
         from .library_media import LibraryMedia
-        self.director.require_ready()
-        if not self.direction_approved(sid):
-            raise ApprovalRequired("Review and approve this scene's direction before animation.")
+        from . import scene_keyframe_video as multi
+        self.director.require_ready(sid)
+        if not self.direction_ready(sid):
+            raise ApprovalRequired("Build current scene direction and generate the scene snapshot before animation.")
         if not force and self.visual_current(sid, options):
             return self.visuals()[sid]
         with project_lock(self.path):
+            keyframes=multi.validated(self,sid,options)
             scene = next(s for s in self.assets.creative.artifact("storyboard").scenes if s.scene_id == sid)
             production = self.assets.load()
             image = production.records.get("scene_images:" + sid)
@@ -170,6 +209,9 @@ class SceneProduction:
             atomic_write(self.path / "visual_scenes.json", json.dumps(visuals, ensure_ascii=False, indent=2))
             try:
                 ffmpeg = FFmpeg(self.manager.settings.ffmpeg_path, self.manager.settings.render_timeout_sec)
+                def progress(label):
+                    record["generationStage"]=label
+                    atomic_write(self.path/"visual_scenes.json",json.dumps(visuals,ensure_ascii=False,indent=2))
                 reusable = previous.get("formats",{}).get(formats[0],{})
                 reuse_base = (not force and previous.get("sourceHash") == key
                     and reusable.get("status") == "succeeded" and reusable.get("asset"))
@@ -181,15 +223,20 @@ class SceneProduction:
                 if reuse_base:
                     clip = GeneratedAsset.model_validate(reusable["asset"])
                 else:
-                    if options.continuity_animation:
+                    checkpoint=multi.resume_base(self,previous,key,force) if keyframes else None
+                    if checkpoint:
+                        clip=checkpoint
+                    elif options.continuity_animation or (keyframes and scene.duration_sec>15):
+                        progress("Generating base animation (Kling O3 Pro)" if keyframes else "Generating animation")
                         production.scenes[sid] = SceneAssets(scene_id=sid, image=image.asset.file_path, audio="", srt="", vtt="", timing="", duration=scene.duration_sec)
                         clip = ShotRenderer(self.director, ffmpeg, video_provider(options, self.manager.settings), self.stop_requested).render(scene, production, options, work / "visual.mp4", force=force)
                     else:
+                        progress("Generating base animation (Kling O3 Pro)" if keyframes else "Generating animation")
                         provider = LocalVideoProvider(ffmpeg) if options.provider == "local" else video_provider(options, self.manager.settings)
                         prompt = "\n".join(s.action + ". Camera: " + s.camera for s in self.direction(sid).shots)
                         if options.generation_mode == "text":
                             source_prompt = next(p.video_prompt for p in self.assets.creative.artifact("prompts").prompts if p.scene_id == sid)
-                            prompt = source_prompt + "\nApproved direction: " + prompt
+                            prompt = source_prompt + "\nSaved direction: " + prompt
                         prompt += "\n" + composition_guidance(options)
                         if options.provider == "runway":
                             from .provider_prompts import compile_prompt
@@ -197,9 +244,23 @@ class SceneProduction:
                         config = ProviderConfig(provider=options.provider, model="ffmpeg-image-motion" if options.provider == "local" else options.video_model,
                             options={"output_path": str(work / "visual.mp4"), "duration": scene.duration_sec, "seconds": options.video_seconds,
                                      "size": options.video_size, "render_options": options.model_dump(mode="json")})
+                        first_image=self.assets.local_path(image.asset.file_path)
+                        if keyframes:
+                            import math
+                            config.options["seconds"]=max(3,math.ceil(scene.duration_sec))
+                            for frame in keyframes["frames"]:
+                                if abs(frame["timeSec"])<1e-6:
+                                    first_image=self.assets.local_path(frame["asset"]["filePath"])
+                                if abs(frame["timeSec"]-scene.duration_sec)<1e-6:
+                                    config.options["last_frame"]=str(self.assets.local_path(frame["asset"]["filePath"]))
                         clip = LibraryMedia(self.manager, self.project_id)._call(provider, provider.generate_clip,
-                            (prompt, [self.assets.local_path(image.asset.file_path)] if options.generation_mode == "image" else []), config, "animation:visual:" + sid)
+                            (prompt, [first_image] if options.generation_mode == "image" else []), config, "animation:visual:" + sid)
                 clip.file_path = Path(clip.file_path).relative_to(self.path).as_posix() if Path(clip.file_path).is_absolute() else clip.file_path
+                if keyframes and clip.generation_params.get("multiKeyframesHash")!=keyframes["hash"]:
+                    record["multiKeyframeJob"]={"sourceHash":key,"baseAsset":clip.model_dump(mode="json",by_alias=True),
+                        "baseHash":file_hash(self.assets.local_path(clip.file_path))}
+                    progress("Preparing timed keyframes (Aleph 2.0)")
+                    clip=multi.finish(self,sid,clip,options,keyframes,ffmpeg,progress)
                 clip.generation_params.update(deliveryFormats=formats,portraitSafeArea=options.portrait_safe_area)
                 record["formats"][formats[0]] = {"status":"succeeded","asset":clip.model_dump(mode="json",by_alias=True),
                     "fileHash":file_hash(self.assets.local_path(clip.file_path))}
@@ -218,8 +279,10 @@ class SceneProduction:
                             "sourceFile":clip.file_path,"deliveryFormat":PORTRAIT,"portraitSafeArea":True})
                     record["formats"][PORTRAIT] = {"status":"succeeded","asset":portrait.model_dump(mode="json",by_alias=True),
                         "fileHash":file_hash(portrait_path)}
-                record.update(status="succeeded", revision=record["revision"]+1, asset=clip.model_dump(mode="json", by_alias=True),
-                              fileHash=file_hash(self.assets.local_path(clip.file_path)), approval=None)
+                from .scene_visual_revisions import next_revision
+                record.update(status="succeeded", revision=next_revision(self,sid,previous), asset=clip.model_dump(mode="json", by_alias=True),
+                              fileHash=file_hash(self.assets.local_path(clip.file_path)),
+                              approval=ApprovalRecord(content_hash=key).model_dump(mode="json",by_alias=True),generationStage="Completed")
             except InterruptedError:
                 record.update(status="stopped", error="Stopped after the current shot; saved shots can be resumed.")
                 for version in record.get("formats",{}).values():
@@ -235,7 +298,22 @@ class SceneProduction:
                 atomic_write(self.path / "visual_scenes.json", json.dumps(visuals, ensure_ascii=False, indent=2))
                 raise
             atomic_write(self.path / "visual_scenes.json", json.dumps(visuals, ensure_ascii=False, indent=2))
+            from .scene_visual_revisions import archive
+            archive(self,sid,record)
             return record
+
+    def revisions(self,sid):
+        from .scene_visual_revisions import revisions
+        return revisions(self,sid)
+
+    def apply_revision(self,sid,asset_id,options,*,expected):
+        from .scene_visual_revisions import apply
+        return apply(self,sid,asset_id,options,expected=expected)
+
+    def modify_region(self,sid,options,*,expected,rectangle,prompt,provider=None,expected_input_hash=None,start_time=None,end_time=None):
+        from .scene_video_region import modify
+        return modify(self,sid,options,expected=expected,selection=rectangle,prompt=prompt,provider=provider,
+            expected_input_hash=expected_input_hash,start_time=start_time,end_time=end_time)
 
     def approve_visual(self, sid, options, *, expected):
         with project_lock(self.path):
@@ -245,9 +323,14 @@ class SceneProduction:
             visuals[sid]["approval"] = ApprovalRecord(content_hash=expected).model_dump(mode="json", by_alias=True)
             atomic_write(self.path / "visual_scenes.json", json.dumps(visuals, ensure_ascii=False, indent=2))
 
+    def extend_visual(self,sid,options,*,expected,seconds,prompt,expected_input_hash=None,provider=None):
+        from .scene_video_extension import extend
+        return extend(self,sid,options,expected=expected,seconds=seconds,prompt=prompt,
+            expected_input_hash=expected_input_hash,provider=provider)
+
     def fitted_visual(self, sid, options, duration, destination):
-        if not self.visual_current(sid, options, approved=True):
-            raise ApprovalRequired("Generate and approve the animated scene on Animations → Animated scenes first.")
+        if not self.visual_current(sid, options):
+            raise ApprovalRequired("Generate the current animated scene on Animations → Animated scenes first.")
         from .ffmpeg_renderer import FFmpeg
         ffmpeg = FFmpeg(self.manager.settings.ffmpeg_path, self.manager.settings.render_timeout_sec)
         source = self.assets.local_path(self.visuals()[sid]["asset"]["filePath"])

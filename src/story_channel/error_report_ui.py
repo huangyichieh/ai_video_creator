@@ -11,7 +11,8 @@ from .files import input_hash
 
 _DIALOG_KEYS = {"active-stage-browser", "modify-target", "voice-design-target", "studio-modify-target",
     "outline-dialog-project", "remove-character-target", "delete-project-target", "api-key-dialog-open",
-    "generation-preferences-open", "background-revisions-target", "background-enhance-target", "location-pair-revisions-target"}
+    "generation-preferences-open", "background-revisions-target", "background-enhance-target", "location-pair-revisions-target",
+    "scene-video-modify-target", "scene-video-extend-target", "scene-keyframes-target"}
 
 
 def error_project(context):

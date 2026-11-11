@@ -21,21 +21,27 @@ def read_source(pipeline, stage, subject):
         locations = pipeline.artifact("world").locations
         direct = next((location for location in locations if location.location_id == subject), None)
         if direct:
-            return direct
+            return Location.model_validate(direct.model_dump(mode="json",by_alias=True))
         base, _, view = subject.rpartition("__")
         matched = next((location for location in locations if location.location_id == base), None)
         if matched and view in ("left", "right", "back"):
-            return matched
+            return Location.model_validate(matched.model_dump(mode="json",by_alias=True))
         raise ValueError("Unknown background location or view.")
     sid = scene_id(stage, subject)
     scene = next(c for c in pipeline.artifact("storyboard").scenes if c.scene_id == sid)
+    # Cached/reloaded artifact classes can have the same name but a different
+    # Python identity. Validate their data against this wrapper's own schema.
+    scene=scene.model_dump(mode="json",by_alias=True)
     if stage == "voices":
         return SceneSource(scene=scene)
+    state = pipeline.manager.load(pipeline.project_id).steps.get("prompts")
+    if not state or state.status != "succeeded":
+        return SceneImageSource(scene=scene)
     try:
         prompt = next((p for p in pipeline.artifact("prompts").prompts if p.scene_id == sid), None)
     except OSError:
         prompt = None
-    return SceneImageSource(scene=scene, prompt=prompt)
+    return SceneImageSource(scene=scene, prompt=prompt.model_dump(mode="json",by_alias=True) if prompt is not None else None)
 
 
 def edit_source(pipeline, stage, subject, text, *, expected):
@@ -55,8 +61,8 @@ def edit_source(pipeline, stage, subject, text, *, expected):
         index = next(i for i, entry in enumerate(entries) if getattr(entry, identity) == target)
         if getattr(item, identity) != target:
             raise ValueError(f"Keep {identity} unchanged when editing an asset source.")
-        if entries[index] != item:
-            entries[index] = item
+        if entries[index].model_dump(mode="json",by_alias=True) != item.model_dump(mode="json",by_alias=True):
+            entries[index] = type(entries[index]).model_validate(item.model_dump(mode="json",by_alias=True))
             changes[name] = document.model_dump_json(by_alias=True)
 
     if stage == "backgrounds":

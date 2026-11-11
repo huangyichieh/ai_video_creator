@@ -1,4 +1,5 @@
 """Optional reference generation in a modal that stays open during provider work."""
+from .image_preview_ui import image_preview
 import streamlit as st
 
 from .dialog_ui import dialog, Deferred
@@ -68,7 +69,7 @@ def content(engine, lid):
         render_error(error, project_path=engine.path, task_key="background:runway:"+lid, key=prefix+"-error-report")
     if saved := st.session_state.get(prefix+"-result"):
         st.success("Optional reference saved. Review it before using it in scene generation.")
-        st.image(str(engine.local_path(saved["asset"]["filePath"])))
+        image_preview(str(engine.local_path(saved["asset"]["filePath"])))
         area = st.text_input("Scene reference target area / name", key=prefix+"-area", placeholder="e.g. reception desk")
         def use():
             from .background_enhancement import use_reference

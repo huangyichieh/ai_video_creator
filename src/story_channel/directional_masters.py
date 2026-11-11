@@ -1,4 +1,5 @@
 """Four camera-scoped location sectors and shared angular overlap anchors."""
+from .image_preview_ui import image_preview
 import json
 import math
 
@@ -167,4 +168,4 @@ def review_ui(engine,state,lid):
                     record = state.records[f"backgrounds:{lid}__{name}"]
                     with Image.open(engine.local_path(record.asset.file_path)) as image:
                         pixels = crop(image,name,row["yawRange"])
-                    st.image(np.rint(pixels).clip(0,255).astype("uint8"),caption=LABELS[name]+" shared region")
+                    image_preview(np.rint(pixels).clip(0,255).astype("uint8"),caption=LABELS[name]+" shared region")

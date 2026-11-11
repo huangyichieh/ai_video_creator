@@ -22,7 +22,7 @@ PROCESSES = {
     "dialogue_review": "Dialogue review",
     "storyboard": "Storyboard / Shot planning",
     "storyboard_review": "Storyboard review",
-    "prompts": "Image / video prompt writing",
+    "prompts": "Provider prompt shortening / adaptation",
     "performance": "Performance metadata / direction (emotion, gesture, bodyAction, cameraReaction)",
     "metadata": "Metadata / tags / filenames / summaries",
     "proofreading": "Typo checks",
@@ -32,6 +32,7 @@ PROCESSES = {
     "sound_description": "SFX / ambience descriptions",
     "asset_edit": "Character / background / prop / costume detail edits",
     "animation_edit": "Animation / finishing plan edits",
+    "scene_continuity": "Animated scene visual continuity review",
     "other_edit": "Other content edits",
 }
 

@@ -1,4 +1,5 @@
 """Compact clickable guide thumbnails with deferred full-size previews."""
+from .image_preview_ui import image_preview
 import base64
 from io import BytesIO
 from pathlib import Path
@@ -96,7 +97,7 @@ def preview_dialog(manager,target):
         path = (root/relative).resolve()
         if relative.is_absolute() or not path.is_relative_to(root):
             raise ValueError("Image must belong to the selected project.")
-        st.image(str(path),width="stretch")
+        image_preview(str(path),width="stretch")
     except (OSError,ValueError) as exc:
         st.error(str(exc))
     st.button("Close",key="close-floor-plan-preview",on_click=close_and_refresh)

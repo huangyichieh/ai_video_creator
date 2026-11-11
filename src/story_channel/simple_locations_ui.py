@@ -1,4 +1,5 @@
 """Compact prompt, guidance upload and single-master controls."""
+from .image_preview_ui import image_preview
 import streamlit as st
 from .background_assets_ui import launch_background, loading_result
 from .background_library import BackgroundLibrary
@@ -29,7 +30,7 @@ def render(engine, lid, state):
                 launch_background(engine,lambda:library.set_image(lid,data),"Saving background guidance",service="local",subject=lid)
         st.file_uploader("Guidance image (optional)",type=["png","jpg","jpeg","webp"],key=upload_key,on_change=upload)
         if lid in state.background_images:
-            st.image(str(library.image(state,lid)),width=300)
+            image_preview(str(library.image(state,lid)),width=300)
             st.button("Remove guidance image",key=prefix+"-remove-guidance",disabled=busy(),
                 on_click=lambda:launch_background(engine,lambda:library.set_image(lid,None),"Removing background guidance",service="local",subject=lid))
         if changed:
@@ -44,7 +45,7 @@ def render(engine, lid, state):
             loading_result("Queuing..." if activity == "queued" else "Generating...")
         record = state.records.get("backgrounds:"+subject)
         if record and record.asset:
-            st.image(str(engine.local_path(record.asset.file_path)),width="stretch")
+            image_preview(str(engine.local_path(record.asset.file_path)),width="stretch")
             st.caption(f"{record.status} · revision {record.revision}")
         if record and record.error:
             from .error_report_ui import render_error

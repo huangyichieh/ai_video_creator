@@ -183,6 +183,20 @@ class Pipeline:
         if recovered:
             approval = manifest.approvals["storyboard"]
             self._event("storyboard", "approved", content_hash=approval.content_hash, note=approval.note, recovered=True)
+        prompts = manifest.steps.get("prompts")
+        prompt_approval = manifest.content_approvals.get("prompts")
+        from .animation_prompt_preparation import preparation_current
+        if (manifest.world_project_id and "storyboard" in manifest.approvals
+                and (not prompts or prompts.status not in ("running","failed"))
+                and (not prompts or prompts.status != "succeeded" or not prompt_approval
+                     or prompt_approval.content_hash != prompts.output_hash or not preparation_current(self,manifest))):
+            from .animation_prompt_preparation import prepare_locked
+            try:
+                manifest = prepare_locked(self)
+            except (OSError,ValueError,RuntimeError):
+                # Keep the approved storyboard visible and expose a retry on
+                # its tab if local prompt preparation fails.
+                manifest = self._load()
         return manifest
 
     def _set_status(self, manifest):
@@ -552,20 +566,23 @@ class Pipeline:
             from .identity import IdentityManager
             IdentityManager(self.manager, self.project_id).prepare()
 
-    def edit_bundle(self, changes: dict[str, str], *, expected: dict[str, str], preserve_storyboard_approval=False):
+    def edit_bundle(self, changes: dict[str, str], *, expected: dict[str, str], preserve_storyboard_approval=False, approve_storyboard_edit=False):
         """Validate a dialog's draft before saving; reject concurrent changes."""
         allowed = {"project", "outline", *STEPS}
         if not set(changes) <= allowed or not set(expected) <= allowed:
             raise ValueError("Unknown content in stage edit")
-        if preserve_storyboard_approval and set(changes) != {"storyboard"}:
+        retain_approval = preserve_storyboard_approval or approve_storyboard_edit
+        if retain_approval and set(changes) != {"storyboard"}:
             raise ValueError("Approval retention is only supported for a scoped storyboard edit")
         with project_lock(self.path):
-            manifest = self._refresh() if preserve_storyboard_approval else self._load()
-            retained_approval = manifest.approvals.get("storyboard") if preserve_storyboard_approval else None
+            manifest = self._refresh() if retain_approval else self._load()
+            retained_approval = manifest.approvals.get("storyboard") if retain_approval else None
             approval_steps = STEPS[:STEPS.index("storyboard") + 1]
             if retained_approval and (any(name not in manifest.steps or manifest.steps[name].status != "succeeded" for name in approval_steps)
                     or retained_approval.content_hash != input_hash({name:manifest.steps[name].output_hash for name in approval_steps})):
                 retained_approval = None
+            if approve_storyboard_edit and not retained_approval:
+                raise ApprovalRequired("Approve the storyboard on Story/Episode before editing it on Scene images.")
             if manifest.workflow_version == "world_episode" and ("outline" in changes or "project" in changes):
                 raise ValueError("Edit World settings on World, or episode title/outline/length on Story/Episode.")
 
@@ -606,6 +623,10 @@ class Pipeline:
                 for dependency in MODULES[name].dependencies:
                     source = parsed.get(dependency) or self.artifact(dependency)
                     context[dependency] = source.model_dump(mode="json", by_alias=True)
+                # A user may shorten a storyboard by deleting a scene. Keep
+                # generation's target-length constraint, but allow manual timing.
+                if name == "storyboard":
+                    context["manualStoryboardEdit"] = True
                 validate_output(name, output, context)
             if "outline" in changes:
                 atomic_write(self.path / "history" / "outline" / f"{input_hash(read('outline'))}.md", read("outline"))
@@ -622,11 +643,15 @@ class Pipeline:
             if retained_approval and all(updated.steps[name].status == "succeeded" for name in approval_steps):
                 digest = input_hash({name:updated.steps[name].output_hash for name in approval_steps})
                 updated.approvals["storyboard"] = retained_approval.model_copy(update={"content_hash":digest,
-                    "note":"Existing storyboard approval retained after scoped prop removal; dialogue and story beats preserved"})
+                    "note":"Scene-image storyboard edit saved and approved by the user" if approve_storyboard_edit else
+                        "Existing storyboard approval retained after scoped prop removal; dialogue and story beats preserved"})
                 updated.approved_steps = [gate for gate in ("story","storyboard") if gate in updated.approvals]
                 self._set_status(updated)
                 self.manager.save(updated)
                 self._event("storyboard","approval_retained",content_hash=digest,previous_content_hash=retained_approval.content_hash)
+                if approve_storyboard_edit and updated.world_project_id:
+                    from .animation_prompt_preparation import prepare_locked
+                    prepare_locked(self)
 
     def approve(self, gate: str, note: str = ""):
         with project_lock(self.path):
@@ -659,7 +684,17 @@ class Pipeline:
         self._set_status(manifest)
         self.manager.save(manifest)
         self._event(gate, "approved", content_hash=digest, note=note)
+        if gate == "storyboard" and manifest.world_project_id:
+            from .animation_prompt_preparation import prepare_locked
+            manifest = prepare_locked(self)
         return manifest
+
+    def prepare_animation_prompts(self):
+        """Retry local prompt preparation without reopening storyboard review."""
+        with project_lock(self.path):
+            self._refresh()
+            from .animation_prompt_preparation import prepare_locked
+            return prepare_locked(self)
 
     def save_to_library(self, step: str, name: str) -> Path:
         if step not in ("world", "characters"):

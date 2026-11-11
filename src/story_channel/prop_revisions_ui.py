@@ -1,4 +1,6 @@
 """Preview saved mode images before selecting the shared current revision."""
+from .image_preview_ui import image_preview
+from .revision_labels import revision_label
 from uuid import uuid4
 import streamlit as st
 from .dialog_ui import dialog,Deferred,request_open
@@ -40,11 +42,11 @@ def revisions_dialog(media,target):
         versions = state["visuals"].get("prop:"+pid+":"+source_mode,[])
         numbers = sorted((item["revision"] for item in versions),reverse=True)
         revision = st.selectbox("Saved revision",numbers,key=prefix+"-choice-"+source_mode,
-            format_func=lambda number:f"Revision {number}"+(" · Current" if source_mode == mode and number == current.get("revision") else ""))
+            format_func=lambda number:revision_label(next(item for item in versions if item["revision"] == number))+(" · Current" if source_mode == mode and number == current.get("revision") else ""))
         version = next(item for item in versions if item["revision"] == revision)
         usable = intact(media,version)
         if usable:
-            st.image(str(media.assets.local_path(version["asset"]["filePath"])),width="stretch")
+            image_preview(str(media.assets.local_path(version["asset"]["filePath"])),width="stretch")
         else:
             st.warning("This revision's image is missing or modified and cannot be applied.")
         asset = version.get("asset",{})

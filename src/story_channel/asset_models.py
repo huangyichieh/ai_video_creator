@@ -103,6 +103,7 @@ class Production(Model):
     background_panorama_reviews: dict[str, dict] = Field(default_factory=dict)
     character_images: dict[str, dict[str, str]] = Field(default_factory=dict)
     voice_map: dict[str, str] = Field(default_factory=dict)
+    voice_line_overrides: dict[str, dict] = Field(default_factory=dict)
     style_prompts: dict[str, str] = Field(default_factory=dict)
     # Older fields remain readable as historical provenance. Current World /
     # Episode projects use individual references after the one-time migration.

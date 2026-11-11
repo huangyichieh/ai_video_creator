@@ -191,6 +191,32 @@ class KlingVideoProvider(RunwayMedia):
                               duration=seconds, prompt_hash=input_hash(prompt), generation_params={"jobId": job_id, "submittedPrompt": body["promptText"]})
 
 
+class RunwayVideoEditProvider(RunwayMedia):
+    """Video-to-video crop edits; spatial masking is enforced by compositing."""
+    @limited('runway')
+    def edit_clip(self,prompt,source,config):
+        self.last_usage = {}
+        prompt = require_prompt_budget(prompt)
+        keyframes=config.options.get("keyframes",[])
+        if len(keyframes)>5:
+            raise ValueError("Aleph accepts at most five timed keyframes per request.")
+        import math
+        duration=float(config.options["duration"])
+        if any(not math.isfinite(float(frame["seconds"])) or not 0<=float(frame["seconds"])<=duration for frame in keyframes):
+            raise ValueError("Aleph keyframe times must lie inside the input video.")
+        body = {"model":"aleph2","videoUri":self.upload(source),
+                "promptText":prompt,"outputFormat":"mp4"}
+        if keyframes:
+            body["keyframes"]=[{"uri":self.upload(frame["file"]),
+                **({"at":1} if abs(float(frame["seconds"])-duration)<1e-6 else {"seconds":float(frame["seconds"])})}
+                for frame in keyframes]
+        job_id = self.task("/video_to_video",body,config,"video_seconds",config.options["duration"])
+        return GeneratedAsset(type="video",provider="runway",model="aleph2",file_path=config.options["output_path"],
+            duration=config.options["duration"],prompt_hash=input_hash(prompt),
+            generation_params={"jobId":job_id,"submittedPrompt":body["promptText"],
+                **({"timedKeyframes":[{"file":str(frame["file"]),"seconds":frame["seconds"]} for frame in keyframes]} if keyframes else {})})
+
+
 class ActTwoProvider(RunwayMedia):
     @limited('runway')
     def generate_clip(self, prompt, references, config):

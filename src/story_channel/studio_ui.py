@@ -200,7 +200,10 @@ def episode_page(manager, world_id, episode_id=None, pipeline=None):
     else:
         st.caption("Status: "+status)
     pipeline = pipeline if pipeline and pipeline.project_id == episode_id else selected_pipeline(manager,episode_id)
-    tabs = st.tabs(["Outline", "Story", "Script", "Storyboard", "Prompts"], key=f"page-tab-episode-{episode_id}", on_change="rerun")
+    tab_key = f"page-tab-episode-{episode_id}"
+    if st.session_state.get(tab_key) in ("Prompts",4):
+        st.session_state[tab_key] = "Storyboard"
+    tabs = st.tabs(["Outline", "Story", "Script", "Storyboard"], key=tab_key, on_change="rerun")
     with tabs[0]:
         from .episode_removal_ui import open_removal
         st.button("Remove episode",key="episode-remove-"+episode_id,icon=":material/delete:",disabled=busy(),
@@ -259,7 +262,7 @@ def episode_page(manager, world_id, episode_id=None, pipeline=None):
             stage_review(pipeline, "outline")
     from .modules import MODULES
     from .ui import approval_files, approval_json_toggle
-    for tab, stage in zip(tabs[1:], ("story", "script", "storyboard", "prompts")):
+    for tab, stage in zip(tabs[1:], ("story", "script", "storyboard")):
         with tab:
             state = project.steps.get(stage)
             st.caption(stage.title() + " · " + (state.status if state else "pending") + (f" · revision {state.revision}" if state else ""))
@@ -278,8 +281,6 @@ def episode_page(manager, world_id, episode_id=None, pipeline=None):
                 can_generate = can_generate and "story" in project.approvals
             elif stage == "storyboard":
                 can_generate = can_generate and approved_content(pipeline, "script")
-            elif stage == "prompts":
-                can_generate = can_generate and "storyboard" in project.approvals
             if generation_button(("Regenerate " if state else "Generate ") + stage.title(), key=f"episode-generate-{episode_id}-{stage}", disabled=busy() or not can_generate):
                 launch(generate, "Generating episode " + stage)
             path = pipeline.path / MODULES[stage].filename
@@ -312,6 +313,14 @@ def episode_page(manager, world_id, episode_id=None, pipeline=None):
             elif stage == "storyboard":
                 from .dialogue_review import approval_dialogue_review
                 approval_dialogue_review(pipeline, source_ready=True)
+                st.caption("Approving Storyboard automatically prepares animation prompts. No separate Prompts step is needed.")
+                current = manager.load(episode_id)
+                if "storyboard" in current.approvals and not approved_content(pipeline,"prompts"):
+                    preparation = current.steps.get("prompts")
+                    if preparation and preparation.error:
+                        render_error(preparation.error,project_path=pipeline.path,task_key="prompts",key="episode-prompt-preparation-error-"+episode_id)
+                    if generation_button("Prepare animation prompts",key="episode-prepare-prompts-"+episode_id,disabled=busy()):
+                        launch(pipeline.prepare_animation_prompts,"Preparing animation prompts")
             else:
                 stage_review(pipeline, stage)
     from .ui import show_active_browser

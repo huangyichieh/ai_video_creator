@@ -6,12 +6,12 @@ from .files import atomic_write, read_text
 from .locking import project_lock
 from .models import utc_now
 
-STAGES = ("character_references", "backgrounds")
+STAGES = ("character_references", "backgrounds", "scene_images")
 
 
 def history_path(engine, stage, subject):
     if stage not in STAGES:
-        raise ValueError("Revision selection supports character references and backgrounds")
+        raise ValueError("Revision selection supports character references, backgrounds and scene images")
     from .models import Identifier
     from pydantic import TypeAdapter
     TypeAdapter(Identifier).validate_python(subject)
@@ -75,7 +75,8 @@ def apply_revision(engine, stage, subject, asset_id):
                 invalidate_world(engine, lid)
         state.consistency_report = {}
         manifest = engine.manager.load(engine.project_id)
-        gates = ("characters", "backgrounds", "assets") if stage == "character_references" else ("backgrounds", "assets")
+        gates = (("characters", "backgrounds", "assets") if stage == "character_references" else
+                 ("backgrounds", "assets") if stage == "backgrounds" else ("assets",))
         for gate in gates:
             manifest.asset_approvals.pop(gate, None)
         engine.manager.save(manifest)

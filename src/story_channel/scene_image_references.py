@@ -1,5 +1,6 @@
 """Explicit asset identities and immutable reference inputs for scene stills."""
 from .media_utils import file_hash
+from .visual_generation import EDIT_MODEL as SCENE_IMAGE_MODEL
 
 LOCK = ("Asset lock: match cast faces, hair, proportions, clothing AND rendering style exactly. "
         "Use location geometry and supplied prop designs. Style guides are STYLE ONLY; never restyle/redesign cast. "
@@ -48,6 +49,15 @@ def request(engine,state,task,config,*,runway=False):
             raise ValueError("Scene asset reference is missing or modified: "+item["id"]+". Refresh Assets before generating.")
         references.append(path)
     prompt = task.prompt
+    if scene := config.options.get("storyboardScene"):
+        import json
+        visual_fields = ("sceneId","locationId","characterIds","propIds","visualDescription","action","shotType",
+            "cameraMovement","cameraStartAngle","cameraEndAngle","cameraPitch","cameraFov","targetArea",
+            "characterPosition","interactionTarget")
+        prompt = ("CURRENT STORYBOARD SCENE: this is authoritative for composition, action, camera and asset selection. "
+            "If older derived rendering descriptions conflict, follow this scene. Depict the action's key moment; do not render labels or dialogue text.\n"
+            +json.dumps({key:scene[key] for key in visual_fields if key in scene},ensure_ascii=False)
+            +"\nRendering instructions:\n"+prompt)
     for field in ("generic_prompt","style_prompt"):
         if config.options.get(field):
             prompt += "\nCompatible style detail: "+config.options[field]
@@ -72,7 +82,7 @@ def request(engine,state,task,config,*,runway=False):
         prompt += "\nEdit the supplied current image, preserving unrelated composition. Request: "+modification.prompt
     legend = "Inputs: "+"; ".join(f"{index}={item['role']}:{item['id']}" for index,item in enumerate(entries,1))+". "
     suffix = legend+LOCK
-    if runway:
+    if runway and config.provider == "runway":
         from .provider_prompts import compile_prompt
         from .runway_prompt_limits import MAX_PROMPT_UNITS,prompt_units
         # Reserve the non-compressible identity legend and provider packing notice.

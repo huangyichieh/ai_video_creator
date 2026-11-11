@@ -113,14 +113,50 @@ def materialize(data,catalog):
     return Storyboard.model_validate(data)
 
 
-def save(pipeline,data,expected,*,preserve_storyboard_approval=False):
+def save_scene(pipeline,scene_id,data,expected,*,auto_approve=False):
+    """Merge one scene into the latest board; preserve unrelated saved edits."""
+    from .models import Scene
+    baseline = Storyboard.model_validate_json(expected).model_dump(mode="json",by_alias=True)
+    source = (pipeline.path/"scenes.json").read_text(encoding="utf-8-sig")
+    current = Storyboard.model_validate_json(source).model_dump(mode="json",by_alias=True)
+    original = next((item for item in baseline["scenes"] if item["sceneId"] == scene_id),None)
+    index = next((i for i,item in enumerate(current["scenes"]) if item["sceneId"] == scene_id),None)
+    edited = next((item for item in data["scenes"] if item["sceneId"] == scene_id),None)
+    if original is None or index is None or edited is None:
+        raise ValueError("This storyboard scene no longer exists. Reload the scene editor.")
+    if current["scenes"][index] != original:
+        raise ValueError("This scene changed in another editor. Reload or revert before saving.")
+    edited = Scene.model_validate(edited).model_dump(mode="json",by_alias=True)
+    if edited["order"] != original["order"]:
+        raise ValueError("Reorder scenes on Story/Episode; this editor updates one scene only.")
+    current["scenes"][index] = edited
+    for field,keys in (("backgrounds",("locationId",)),("props",("propId",)),("bgm",("bgmId",)),
+                       ("detailBackgrounds",("locationId","detailId"))):
+        identity = lambda item:tuple(item[key] for key in keys)
+        prior = {identity(item):item for item in baseline.get(field,[])}
+        known = {identity(item):item for item in current.get(field,[])}
+        for item in data.get(field,[]):
+            key = identity(item)
+            if key in prior:
+                if item != prior[key]:
+                    raise ValueError("Edit existing reusable requirements on Story/Episode or Assets.")
+                continue
+            if key in known and known[key] != item:
+                raise ValueError("This asset requirement changed in another editor. Reload before saving.")
+            if key not in known:
+                current.setdefault(field,[]).append(item)
+                known[key] = item
+    return save(pipeline,current,source,auto_approve=auto_approve)
+
+
+def save(pipeline,data,expected,*,preserve_storyboard_approval=False,auto_approve=False):
     output = materialize(data,inventory(pipeline))
     if (pipeline.path/"scenes.json").read_text(encoding="utf-8-sig") != expected:
         raise ValueError("Content changed in another session. Reload the storyboard before saving.")
     from .bgm_library import import_selected
     import_selected(pipeline.manager,pipeline.project_id,{scene.bgm_id for scene in output.scenes if scene.bgm_id})
     pipeline.edit_bundle({"storyboard":output.model_dump_json(by_alias=True,indent=2)},expected={"storyboard":expected},
-        preserve_storyboard_approval=preserve_storyboard_approval)
+        preserve_storyboard_approval=preserve_storyboard_approval,approve_storyboard_edit=auto_approve)
     manifest = pipeline.manager.load(pipeline.project_id)
     from .storyboard_assets import sync
     sync(pipeline.manager,manifest.world_project_id or pipeline.project_id)

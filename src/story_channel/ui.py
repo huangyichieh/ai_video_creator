@@ -454,6 +454,9 @@ def _main():
                 st.session_state.pop("studio-modify-target", None)
                 st.session_state.pop("remove-character-target", None)
                 st.session_state.pop("remove-episode-target",None)
+                st.session_state.pop("storyboard-split-target",None)
+                st.session_state.pop("storyboard-scene-removal-target",None)
+                st.session_state.pop("storyboard-scene-insertion-target",None)
                 st.session_state.pop("floor-plan-preview-target", None)
                 st.session_state.pop("location-pair-revisions-target",None)
 
@@ -593,7 +596,7 @@ def _main():
                 from .animations_ui import animations_page
                 animations_page(manager,episode_id,check_assets_only=True)
             else:
-                st.info("Approve this episode's Storyboard on Story/Episode to open Check assets. Approve Outline, Story, Script, Storyboard and Prompts before generating animations.")
+                st.info("Approve this episode's Storyboard on Story/Episode to open Check assets. Storyboard approval prepares animation prompts automatically.")
         else:
             if not busy():
                 try:

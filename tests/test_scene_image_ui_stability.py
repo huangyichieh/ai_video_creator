@@ -16,6 +16,7 @@ def test_only_changed_scene_refreshes_and_terminal_error_does_not_repeat(episode
     from story_channel.scene_image_cards_ui import signature
     requests = []
     monkeypatch.setattr("story_channel.asset_view_ui.refresh_target",requests.append)
+    monkeypatch.setattr("story_channel.scene_image_cards_ui.polling_tick",lambda:True)
     def display(engine,first,second):
         import streamlit as st
         from story_channel.scene_image_cards_ui import watch
@@ -41,7 +42,7 @@ def test_only_changed_scene_refreshes_and_terminal_error_does_not_repeat(episode
     assert requests == ["first-card"]
 
 
-def test_scene_preview_keeps_existing_image_while_running_and_has_no_status_box(episode,monkeypatch):
+def test_scene_preview_shows_loading_while_running_and_restores_saved_image_on_failure(episode,monkeypatch):
     import streamlit as st
     _,project,pipeline = episode
     engine = AssetPipeline(pipeline.manager,project.project_id)
@@ -53,7 +54,13 @@ def test_scene_preview_keeps_existing_image_while_running_and_has_no_status_box(
     engine._save(state)
     engine._task_activity["scene_images:"+sid] = "running"
     images = []
+    html = []
     original = st.image
+    original_html = st.html
+    def markup(value,*args,**kwargs):
+        html.append(value)
+        return original_html(value,*args,**kwargs)
+    monkeypatch.setattr(st,"html",markup)
     def image(value,*args,**kwargs):
         images.append(value)
         return original(value,*args,**kwargs)
@@ -62,14 +69,60 @@ def test_scene_preview_keeps_existing_image_while_running_and_has_no_status_box(
         from story_channel.scene_image_cards_ui import card
         card(engine,sid,"test-scene")
     app = AppTest.from_function(display,args=(engine,sid),default_timeout=25)
-    app.session_state["workspace-task"] = {"id":"running","future":Future(),"asset_engine":engine,
+    future = Future()
+    app.session_state["workspace-task"] = {"id":"running","future":future,"asset_engine":engine,
         "label":"Generating scene images","phase":"running"}
     app.run()
-    assert not app.exception and images == [str(path)]
+    assert not app.exception and not images
+    assert any('scene-image-loading-icon' in value and 'Generating...' in value for value in html)
     assert not app.status
     assert app.button(key="retry-asset-scene_images:"+sid).label == "Generating…"
     assert app.button(key="retry-asset-scene_images:"+sid).disabled
+    assert "Download" not in [button.label for button in app.get("download_button")]
+    future.set_result(None)
+    record.status,record.error = "failed","Provider request failed"
+    engine._task_activity["scene_images:"+sid] = "finished"
+    engine._save(state)
+    html.clear()
+    app.run()
+    assert not app.exception and images == [str(path)]
+    assert not any('scene-image-loading-icon' in value for value in html)
     assert "Download" in [button.label for button in app.get("download_button")]
+
+
+def test_scene_button_and_preview_update_before_provider_writes_status(episode,monkeypatch):
+    import streamlit as st
+    _,project,pipeline = episode
+    engine = AssetPipeline(pipeline.manager,project.project_id)
+    sid = pipeline.artifact("storyboard").scenes[0].scene_id
+    engine.generate("scene_images",subject=sid)
+    assert engine.task_activity("scene_images",sid) == "finished"
+    future = Future()
+    def launch(engine,callback,label,**kwargs):
+        assert kwargs["service"] == "openai"
+        task = {"id":"preflight","future":future,"asset_engine":engine,"label":label,
+            "phase":"queued","queue_enabled":True}
+        st.session_state["workspace-task"] = task
+        return task
+    monkeypatch.setattr("story_channel.ui_tasks.launch_assets",launch)
+    def display(engine,sid):
+        from story_channel.scene_image_cards_ui import card
+        card(engine,sid,"test-scene")
+    app = AppTest.from_function(display,args=(engine,sid),default_timeout=25).run()
+    assert not app.exception
+    app.button(key="retry-asset-scene_images:"+sid).click().run()
+    assert not app.exception
+    assert engine.load().records["scene_images:"+sid].status == "succeeded"
+    assert app.button(key="retry-asset-scene_images:"+sid).label == "Generating…"
+    app.run()  # The submitted job can report its actual queue state next.
+    assert app.button(key="retry-asset-scene_images:"+sid).label == "Queuing…"
+    assert app.button(key="retry-asset-scene_images:"+sid).disabled
+    app.session_state["workspace-task"]["phase"] = "running"
+    app.run()
+    assert not app.exception
+    assert app.button(key="retry-asset-scene_images:"+sid).label == "Generating…"
+    assert app.button(key="retry-asset-scene_images:"+sid).disabled
+    assert engine.task_activity("scene_images",sid) == "finished"  # Still the previous attempt's metadata.
 
 
 def test_global_task_progress_does_not_rebuild_scene_images_page(tmp_path,monkeypatch):
@@ -97,3 +150,25 @@ def test_global_task_progress_does_not_rebuild_scene_images_page(tmp_path,monkey
     (folder/"production.json").write_text('{"progress":50}')
     app.run()
     assert not app.exception
+
+
+def test_saved_runway_prompt_limit_error_is_historical_after_openai_switch(episode):
+    _,project,pipeline = episode
+    engine = AssetPipeline(pipeline.manager,project.project_id)
+    sid = pipeline.artifact("storyboard").scenes[0].scene_id
+    state = engine.generate("scene_images",subject=sid)
+    record = state.records["scene_images:"+sid]
+    saved_path = engine.local_path(record.asset.file_path)
+    record.status = "failed"
+    record.error = "Too many scene assets for a reliable Runway identity prompt. Split this shot into fewer subjects."
+    engine._save(state)
+    engine.demo = False
+    def display(engine,sid):
+        from story_channel.scene_image_cards_ui import card
+        card(engine,sid,"legacy-scene-error")
+    app = AppTest.from_function(display,args=(engine,sid),default_timeout=25).run()
+    assert not app.exception
+    assert any("earlier Runway attempt" in item.value and "OpenAI" in item.value for item in app.info)
+    assert any(item.label == "Previous Runway error report" for item in app.expander)
+    assert "OpenAI / gpt-image-2.5-sunburst" in app.button(key="retry-asset-scene_images:"+sid).label
+    assert saved_path.is_file()

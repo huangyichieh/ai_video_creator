@@ -18,14 +18,14 @@ def polling_fragment(callback):
     return render
 
 
-def persistent_expander(label, *, key, expanded=False):
+def persistent_expander(label, *, key, expanded=False, on_change="rerun"):
     panels = st.session_state.setdefault("ui-panel-state", {})
     entry = panels.setdefault(key, {"initial": bool(expanded), "open": bool(expanded), "label": label})
     # Status and revision labels participate in Streamlit's widget identity.
     # Carry the user's choice across those remounts, rather than resetting it.
     if entry["label"] != label:
         st.session_state[key] = st.session_state.get(key, entry["open"])
-    panel = st.expander(label, key=key, expanded=entry["initial"], on_change="rerun")
+    panel = st.expander(label, key=key, expanded=entry["initial"], on_change=on_change)
     entry.update(label=label, open=panel.open)
     return panel
 

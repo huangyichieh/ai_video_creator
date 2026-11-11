@@ -139,7 +139,7 @@ def validate_output(step: str, output: Model, context: dict) -> None:
         else:
             total += scene.estimated_duration_sec
     target = context["targetDurationSec"]
-    if abs(total - target) > target * 0.15:
+    if not (step == "storyboard" and context.get("manualStoryboardEdit")) and abs(total - target) > target * 0.15:
         raise ValueError(f"Scene durations total {total:g}s; expected within 15% of {target}s")
 
 
@@ -156,7 +156,12 @@ class VisualPromptAdapter:
                 f"clothing: {characters[c]['clothing']}; fixed traits: {', '.join(characters[c]['immutableTraits'])}"
                 for c in scene["characterIds"])
             visual = (f"{scene['visualDescription']}\nLocation: {locations[scene['locationId']]['description']}\n"
-                      f"Characters: {cast}\nShot: {scene['shotType']}")
+                      f"Characters: {cast}\nShot: {scene['shotType']}\n"
+                      f"Action / key moment: {scene['action']}\nCamera movement context: {scene['cameraMovement']}\n"
+                      f"Camera yaw: {scene.get('cameraStartAngle')} to {scene.get('cameraEndAngle')}; "
+                      f"pitch: {scene.get('cameraPitch',0)}; horizontal FOV: {scene.get('cameraFov',70)}\n"
+                      f"Target area: {scene.get('targetArea','')}; character position: {scene.get('characterPosition')}; "
+                      f"interaction target: {scene.get('interactionTarget','')}; props: {', '.join(scene.get('propIds',[]))}")
             items.append({"sceneId": scene["sceneId"], "provider": provider, "model": model,
                           "imagePrompt": self.image_prompt(visual),
                           "videoPrompt": self.video_prompt(visual, scene),

@@ -1,4 +1,6 @@
 """Preview saved character media independently from its active selection."""
+from .image_preview_ui import image_preview
+from .revision_labels import revision_label
 import streamlit as st
 
 from .error_report_ui import render_error
@@ -42,7 +44,7 @@ def voice_revisions(engine, media, cid):
         if st.session_state.get(prefix + "-choice") not in choices:
             st.session_state.pop(prefix + "-choice", None)
         selected = st.selectbox("Preview voice revision", list(choices),
-            format_func=lambda r: f"Revision {r} · {choices[r]['emotion']}"
+            format_func=lambda r: revision_label(choices[r])+f" · {choices[r]['emotion']}"
                 + (" (Animation)" if choices[r].get("video") else "") + (" · Active" if r in active else ""),
             key=prefix + "-choice", persist_state="session")
         sample = choices[selected]
@@ -113,12 +115,12 @@ def costume_revisions(engine, media, cid, costume_id):
             st.session_state.pop(prefix + "-choice", None)
         current = active["revision"] if active else None
         selected = st.selectbox("Preview costume revision", list(choices),
-            format_func=lambda r: f"Revision {r}" + (" · Active" if r == current else ""),
+            format_func=lambda r: revision_label(choices[r]) + (" · Active" if r == current else ""),
             key=prefix + "-choice", persist_state="session")
         version = choices[selected]
         intact = visual_intact(media, version)
         if intact:
-            st.image(str(engine.local_path(version["asset"]["filePath"])), width="stretch")
+            image_preview(str(engine.local_path(version["asset"]["filePath"])), width="stretch")
         else:
             st.warning("This revision's image is missing or modified and cannot be applied.")
         with st.expander("Revision generation details"):
