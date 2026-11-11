@@ -16,35 +16,36 @@
 <text x="230" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Resolve 1-3 angle/area references</text>
 <text x="230" y="189" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">per shot</text>
 </a>
-<a href="../README.md#animations"><rect x="450" y="100" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
+<a href="../README.md#animations"><rect x="450" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
 <text x="640" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">2. Direction / performance</text>
-<text x="640" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Review and approve every scene</text>
+<text x="640" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Build, browse and save edits</text>
 </a>
-<a href="../README.md#animations"><rect x="860" y="100" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
+<a href="../README.md#animations"><rect x="860" y="100" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
 <text x="1050" y="135" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">3. Animated scenes</text>
-<text x="1050" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Split orbits; chain last frames;</text>
-<text x="1050" y="189" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">approve</text>
+<text x="1050" y="166" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Generate motion; automatically</text>
+<text x="1050" y="189" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">approved</text>
 </a>
 <a href="../README.md#animations"><rect x="860" y="266" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
 <text x="1050" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">4. Voices and input</text>
 <text x="1050" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Dialogue, alignment and input QA</text>
 </a>
 <a href="../README.md#animations"><rect x="450" y="266" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
-<text x="640" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">5. Video effects</text>
-<text x="640" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Configure and generate VFX layers</text>
+<text x="640" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">5. VFX</text>
+<text x="640" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Episode VFX inventory and previews</text>
 </a>
 <a href="../README.md#animations"><rect x="40" y="266" width="380" height="128" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
-<text x="230" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">6. Sound effects</text>
-<text x="230" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Generate SFX / ambience and preview</text>
+<text x="230" y="301" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">6. SFX</text>
+<text x="230" y="332" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Episode SFX / ambience inventory</text>
 </a>
 <a href="../README.md#animations"><rect x="40" y="432" width="380" height="128" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
 <text x="230" y="467" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">7. Scene review / continuity</text>
-<text x="230" y="498" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Compose, review and approve all</text>
-<text x="230" y="521" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">scenes</text>
+<text x="230" y="498" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">OpenAI sampled-frame continuity</text>
+<text x="230" y="521" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">review</text>
 </a>
 <a href="../README.md#final"><rect x="450" y="432" width="380" height="128" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="2"/>
 <text x="640" y="467" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="23" font-weight="600" fill="#0f172a">8. Go to Final</text>
-<text x="640" y="498" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Hand off approved scenes only</text>
+<text x="640" y="498" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">Hand off reviewed animations and</text>
+<text x="640" y="521" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="400" fill="#0f172a">inputs</text>
 </a>
 <text x="640" y="619" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="400" fill="#475569">Approved visuals are fitted to recorded voices without another video API request. Review timing before Final.</text>
 </svg>
