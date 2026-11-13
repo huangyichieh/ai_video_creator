@@ -1,0 +1,21 @@
+name: story_studio
+description: Native Flutter Web client for Story Studio.
+publish_to: none
+version: 0.4.0+1
+environment:
+  sdk: ^3.10.4
+dependencies:
+  flutter:
+    sdk: flutter
+  get: ^4.7.2
+  http: ^1.5.0
+  json_annotation: ^4.12.0
+  web: ^1.1.1
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  json_serializable: ^6.9.5
+  build_runner: ^2.4.15
+flutter:
+  uses-material-design: true

@@ -1,5 +1,5 @@
 {
-  "dataRoot": "AI_Story_Channel",
+  "dataRoot": "storage/outputs/AI_Story_Channel",
   "logLevel": "INFO",
   "defaultLanguage": "zh-TW",
   "defaultTargetDurationSec": 600,

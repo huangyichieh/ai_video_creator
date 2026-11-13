@@ -122,7 +122,8 @@ def test_settings_environment_overrides_aliases(tmp_path, monkeypatch):
     monkeypatch.setenv("STORY_DATA_ROOT", "override")
     monkeypatch.setenv("STORY_DEFAULT_TARGET_DURATION_SEC", "200")
     settings = Settings.load(config)
-    assert settings.data_root == Path("override")
+    from backend.paths import PROJECT_ROOT
+    assert settings.data_root == PROJECT_ROOT / "override"
     assert settings.default_target_duration_sec == 200
     monkeypatch.setenv("STORY_LOG_LEVEL", "INVALID")
     with pytest.raises(ValidationError):

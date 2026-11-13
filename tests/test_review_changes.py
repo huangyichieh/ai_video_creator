@@ -52,7 +52,8 @@ def test_all_differences_must_be_resolved_before_save_or_pipeline_approval(tmp_p
     assert flow.artifact("story").setup == edited
     assert flow.artifact("story").climax == session.changes[1].original
     assert resolution_current(flow, "story")
-    assert (flow.path / "ai_review_story_changes.md").is_file()
+    assert (flow.path / "ai_review_story_changes.json").is_file()
+    assert not list(flow.path.rglob("*.md"))
     assert "story" in flow.inspect().approvals
     assert flow.inspect().steps["review"].status == "succeeded"
     flow.generate("script")

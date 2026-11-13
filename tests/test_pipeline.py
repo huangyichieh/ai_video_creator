@@ -46,27 +46,25 @@ def test_outline_to_full_project_golden_and_cache(flow):
     assert all(flow.artifact(s) for s in STEPS)
     assert sum(s.duration_sec for s in flow.artifact("storyboard").scenes) == 120
     assert list(flow.artifact("story").model_dump()) == ["title", "target_duration_sec", "hook", "setup", "conflict", "escalation", "twist", "climax", "ending"]
-    expected_files = ("world.json", "characters.json", "characters/keeper.json", "character_bible.md",
-                      "story.json", "story.md", "review_report.json", "script.json", "script.md", "scenes.json",
+    expected_files = ("outline.json", "world.json", "characters.json", "characters/keeper.json",
+                      "story.json", "review_report.json", "script.json", "scenes.json",
                       "prompts/prompts.json", "prompts/image_prompts.json", "prompts/video_prompts.json", "usage.json", "logs/pipeline.jsonl")
     assert all((flow.path / name).exists() for name in expected_files)
     records = CostTracker(flow.manager, flow.project_id).records()
     assert len(records) == 6
     assert all(r.cost == 0 and r.pricing_known for r in records)
     before = {s: manifest.steps[s].revision for s in STEPS}
-    (flow.path / "story.md").unlink()
     flow.run()
-    assert (flow.path / "story.md").exists()
+    assert not list(flow.path.rglob("*.md"))
     assert len(CostTracker(flow.manager, flow.project_id).records()) == 6
     assert {s: flow.inspect().steps[s].revision for s in STEPS} == before
     assert len(list((flow.path / "history").glob("*/*.json"))) == 7
 
 
-def test_storyboard_markdown_export_and_existing_project_backfill(flow):
+def test_storyboard_markdown_export_is_on_demand_without_persistence(flow):
     from story_channel.markdown_exports import readable_text
     complete(flow)
-    export = flow.path / "storyboard.md"
-    content = export.read_text(encoding="utf-8")
+    content = flow.export_storyboard_markdown()
     board = flow.artifact("storyboard")
     assert content.startswith("# Storyboard")
     for scene in board.scenes:
@@ -75,9 +73,8 @@ def test_storyboard_markdown_export_and_existing_project_backfill(flow):
         assert scene.camera_movement in content
         assert readable_text(scene.narration) in content
     before = flow.manager.load(flow.project_id)
-    export.unlink()
-    flow.export_storyboard_markdown()
-    assert export.read_text(encoding="utf-8") == content
+    assert flow.export_storyboard_markdown() == content
+    assert not list(flow.path.rglob("*.md"))
     assert flow.manager.load(flow.project_id) == before
 
 
@@ -198,7 +195,7 @@ def test_bundle_saves_content_and_rejects_concurrent_change(flow):
     story["ending"] = "Edited from the browser"
     flow.edit_bundle({"story": json.dumps(story)}, expected={"story": before})
     assert flow.artifact("story").ending == "Edited from the browser"
-    assert "Edited from the browser" in (flow.path / "story.md").read_text(encoding="utf-8")
+    assert json.loads((flow.path / "story.json").read_text(encoding="utf-8"))["ending"] == "Edited from the browser"
     assert flow.inspect().steps["review"].status == "stale"
     assert "story" not in flow.inspect().approvals and "storyboard" in flow.inspect().approvals
     with pytest.raises(ValueError, match="another session"):
@@ -375,7 +372,7 @@ def test_shared_library_roundtrip(flow):
         flow.save_to_library(step, "reusable")
         with pytest.raises(FileExistsError):
             flow.save_to_library(step, "reusable")
-    new_project = flow.manager.create("Episode two", flow.path / "outline.md")
+    new_project = flow.manager.create("Episode two", flow.path / "outline.json")
     other = Pipeline(flow.manager, new_project.project_id)
     other.use_library("world", "reusable")
     other.use_library("characters", "reusable")

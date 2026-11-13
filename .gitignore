@@ -9,6 +9,29 @@ __pycache__/
 htmlcov/
 build/
 dist/
+.dart_tool/
+.flutter-plugins*
+frontend/build/
+frontend/coverage/
+frontend/.packages
+backend/.venv/
+
+# Runtime state is local only. Keep the four storage buckets in the repository.
+/storage/*
+!/storage/database/
+!/storage/uploads/
+!/storage/outputs/
+!/storage/temp/
+/storage/database/*
+/storage/uploads/*
+/storage/outputs/*
+/storage/temp/*
+!/storage/database/.gitkeep
+!/storage/uploads/.gitkeep
+!/storage/outputs/.gitkeep
+!/storage/temp/.gitkeep
+*.sqlite3-wal
+*.sqlite3-shm
 
 # Local API keys, credentials and settings (keep the blank template)
 .env*

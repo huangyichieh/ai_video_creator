@@ -59,7 +59,8 @@ def test_voice_design_uses_character_context_and_saves_copyable_prompt_with_requ
     assert text.startswith("Native Taiwan Mandarin Chinese. Gender-neutral, 35–45. Studio quality.\n")
     assert "Persona: steadfast lighthouse keeper. Emotion: calm, resolute, warm.\n" in text
     assert text.count("\n") == 2
-    assert (pipeline.path / "prompts" / "voice_design" / f"{cid}.md").read_text(encoding="utf-8") == text + "\n"
+    assert (pipeline.path / "prompts" / "voice_design" / f"{cid}.json").is_file()
+    assert not (pipeline.path / "prompts" / "voice_design" / f"{cid}.md").exists()
     record = CostTracker(pipeline.manager, pipeline.project_id).records()[-1]
     assert record.step == f"voice_design:{cid}" and record.outcome == "succeeded"
     assert record.cost == Decimal("0.002") and record.pricing_known
@@ -151,7 +152,8 @@ def test_narrator_design_uses_story_context_and_separate_storage(voice_project):
     assert narrator_prompt.role == "narrator"
     assert load_voice_design(pipeline, "narrator", narrator=True) == narrator_prompt
     assert load_voice_design(pipeline, cid) == character_prompt
-    assert (pipeline.path / "prompts" / "voice_design" / "narrator" / "prompt.md").read_text(encoding="utf-8").strip() == narrator_prompt.prompt.render()
+    assert (pipeline.path / "prompts" / "voice_design" / "narrator" / "prompt.json").is_file()
+    assert not (pipeline.path / "prompts" / "voice_design" / "narrator" / "prompt.md").exists()
     record = CostTracker(pipeline.manager, pipeline.project_id).records()[-1]
     assert record.step == "voice_design:narrator:voice" and record.cost == Decimal("0.002")
     assert "narrator" not in IdentityManager(pipeline.manager, pipeline.project_id).load().voices
