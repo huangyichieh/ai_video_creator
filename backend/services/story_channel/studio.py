@@ -23,6 +23,7 @@ class TextAdvice(Model):
 
 class TextReview(Model):
     review_id: str = ""
+    source_text: str = ""
     source_hash: str
     context_hash: str
     advice: TextAdvice
@@ -74,7 +75,7 @@ def generate_advice(pipeline, text, context, *, instructions="", stage="world_re
             "reasons for improvements and any unresolved conflicts. Approved canon is immutable. "
             "Do not claim a contradiction is resolved unless the proposed text resolves it. For JSON input, proposed_text must be complete valid JSON preserving IDs, numbers, list order, structure and provider/model selectors. Change text fields only; do not use Markdown fences. " + guidance + " User direction: " + instructions,
             stage, context={"text": text, "approvedCanon": context})
-    return TextReview(review_id=uuid4().hex, source_hash=input_hash(text), context_hash=input_hash(context), advice=advice)
+    return TextReview(review_id=uuid4().hex, source_text=text, source_hash=input_hash(text), context_hash=input_hash(context), advice=advice)
 
 
 class WorldStudio:
@@ -232,10 +233,64 @@ class WorldStudio:
             self.save(state)
             write_document(self.path / "outline.json", text)
 
-    def review(self, *, setting_id=None, instructions=""):
+    def generate_settings(self, *, expected_state):
+        """Fill the six World draft fields from the saved premise; approval stays manual."""
+        import re
+        from .worldview import WORLD_FIELD_NAMES, WORLD_DRAFT_POINTS
+        from .modification import modify_content
         with project_lock(self.path):
             state = self.load()
+            if input_hash(state.model_dump(mode="json", by_alias=True)) != expected_state:
+                raise ValueError("World settings changed. Reload before generating.")
+            if state.approval:
+                raise ValueError("Approved World settings are immutable. Add an additional setting instead.")
+            current = state.settings.model_copy(deep=True)
+            if not current.premise.strip():
+                raise ValueError("Enter a premise before auto generating World settings.")
+            fields = [field for field in WORLD_FIELD_NAMES if field != 'premise']
+
+            def validate(result):
+                result = result.model_copy(update={
+                    field: re.sub(r'^(?:\s*草案提案\s*[:：]\s*)+', '', getattr(result, field)).strip()
+                    for field in fields
+                })
+                if any(not getattr(result, field).strip() for field in fields):
+                    raise ValueError("Complete all six World settings fields, using concise details consistent with the premise.")
+                # Name/premise are user inputs, never AI-generated replacements.
+                return result.model_copy(update={'name': current.name, 'premise': current.premise})
+
+            if self.pipeline.demo:
+                output = current.model_copy(deep=True)
+                for field, (label, _) in zip(WORLD_FIELD_NAMES, WORLD_DRAFT_POINTS):
+                    if field in fields and not getattr(output, field).strip():
+                        setattr(output, field, f"Demo draft — {label}: details consistent with the supplied premise.")
+            else:
+                output = modify_content(self.pipeline, current,
+                    "Expand the supplied premise into a concise, coherent World settings draft. "
+                    "Fill ALL six fields: eraSetting, coreRules, technologyMagicLimits, societyKeyPlaces, "
+                    "tone, forbiddenContradictions. Suggest plausible details for empty fields. "
+                    "Respect existing nonempty details; clarify rather than contradict them. "
+                    "Preserve the World name and premise exactly. Use the default language for generated text. "
+                    "Keep each field short and useful for later characters and stories; avoid unnecessary history. "
+                    "Return only the field content; do not prefix values with labels such as 草案提案： or draft proposal. "
+                    "Generated details are proposals, not approved canon.",
+                    'world', context={'defaultLanguage': state.default_language}, creation=True,
+                    validate_output=validate, retry_validation=True)
+            output = validate(output)
+            self._preserve_legacy_outline()
+            state.base_text, state.review = output.text(), None
+            self.save(state)
+            write_document(self.path / 'outline.json', state.base_text)
+            return state
+
+    def review(self, *, setting_id=None, instructions="", expected_state=None, expected_setting=None):
+        with project_lock(self.path):
+            state = self.load()
+            if expected_state is not None and input_hash(state.model_dump(mode="json", by_alias=True)) != expected_state:
+                raise ValueError("World settings changed. Reload before reviewing.")
             item = self._pending(state, setting_id) if setting_id else None
+            if item and expected_setting is not None and input_hash(item.model_dump(mode='json', by_alias=True)) != expected_setting:
+                raise ValueError('Additional setting changed. Reload before reviewing.')
             if not item and state.approval:
                 raise ValueError("Approved World settings are immutable.")
             text = item.text if item else state.base_text
@@ -249,9 +304,11 @@ class WorldStudio:
             self.save(state)
             return review
 
-    def approve_base(self, *, expected):
+    def approve_base(self, *, expected, expected_state=None):
         with project_lock(self.path):
             state = self.load()
+            if expected_state is not None and input_hash(state.model_dump(mode="json", by_alias=True)) != expected_state:
+                raise ValueError("World settings changed. Reload before approving.")
             if state.approval:
                 return state
             if input_hash(state.base_text) != expected:
@@ -394,22 +451,75 @@ class WorldStudio:
             raise ValueError("Only pending additional settings can be changed.")
         return item
 
-    def edit_setting(self, setting_id, text=None, *, remove=False):
+    def edit_setting(self, setting_id, text=None, *, remove=False, expected=None):
         with project_lock(self.path):
             state = self.require_approved()
             item = self._pending(state, setting_id)
+            if expected is not None and input_hash(item.model_dump(mode='json', by_alias=True)) != expected:
+                raise ValueError('Additional setting changed. Reload before saving or removing.')
             if remove:
                 state.additions.remove(item)
             else:
-                item.text, item.review = text, None
+                if text is None or not text.strip():
+                    raise ValueError('Additional settings cannot be empty.')
+                if item.text != text:
+                    item.text, item.review = text, None
             self.save(state)
 
-    def approve_setting(self, setting_id, *, text, decision):
+    def approve_draft(self, setting_id, *, text, expected_setting):
+        """Approve current draft content, reviewing it automatically when needed."""
+        if not text.strip():
+            raise ValueError('Additional settings cannot be empty.')
         with project_lock(self.path):
             state = self.require_approved()
             item = self._pending(state, setting_id)
+            if input_hash(item.model_dump(mode='json', by_alias=True)) != expected_setting:
+                raise ValueError('Additional setting changed. Reload before approving.')
+            if item.text != text:
+                item.text, item.review = text, None
+                self.save(state)
             review = item.review
-            if (not review or review.source_hash != input_hash(item.text) or review.context_hash != input_hash(self.canon())
+            current = review is not None and review.context_hash == input_hash(self.canon()) and (
+                review.source_hash == input_hash(item.text) or
+                (review.decision in ('apply','revert') and review.accepted_text == item.text))
+            captured = item.model_copy(deep=True)
+        if not current:
+            review = self.review(setting_id=setting_id,
+                                 expected_setting=input_hash(captured.model_dump(mode='json', by_alias=True)))
+            captured.review = review
+        # Always approve the draft content, never an unapplied AI suggestion.
+        self.approve_setting(setting_id, text=text, decision='revert',
+                             expected_setting=input_hash(captured.model_dump(mode='json', by_alias=True)))
+
+    def resolve_setting(self, setting_id, *, decision, expected):
+        """Apply or discard one reviewed suggestion without approving canon."""
+        with project_lock(self.path):
+            state = self.require_approved()
+            item = self._pending(state, setting_id)
+            if input_hash(item.model_dump(mode='json', by_alias=True)) != expected:
+                raise ValueError('Additional setting changed. Reload before resolving the suggestion.')
+            review = item.review
+            if (not review or review.decision or review.source_hash != input_hash(item.text)
+                    or review.context_hash != input_hash(self.canon()) or decision not in ('apply','revert')):
+                raise ValueError('AI review the current additional setting first.')
+            selected = (review.advice.proposed_text or item.text) if decision == 'apply' else item.text
+            if not selected.strip():
+                raise ValueError('Additional settings cannot be empty.')
+            review.decision, review.accepted_text = decision, selected
+            review.verification, review.verification_hash = None, ''
+            item.text = selected
+            self.save(state)
+            return item
+
+    def approve_setting(self, setting_id, *, text, decision, expected_setting=None):
+        with project_lock(self.path):
+            state = self.require_approved()
+            item = self._pending(state, setting_id)
+            if expected_setting is not None and input_hash(item.model_dump(mode='json', by_alias=True)) != expected_setting:
+                raise ValueError('Additional setting changed. Reload before approving.')
+            review = item.review
+            if (not review or not (review.source_hash == input_hash(item.text) or
+                    (review.decision in ('apply','revert') and review.accepted_text == item.text)) or review.context_hash != input_hash(self.canon())
                     or decision not in ("apply", "revert")):
                 raise ValueError("AI review the current additional setting against the current canon first.")
             selected = text if decision == "apply" else item.text

@@ -1,6 +1,33 @@
 """HTTP contracts; existing production contracts are in the adjacent modules."""
 from typing import Any
 from pydantic import BaseModel,Field
+from typing import Literal
+from backend.models.worldview import WorldSettings
+
+
+class WorldFormSave(BaseModel):
+    settings: WorldSettings
+    default_language: str
+    expected: str
+
+
+class WorldFormResolution(BaseModel):
+    settings: WorldSettings
+    decision: Literal['apply', 'revert']
+    expected: str
+
+
+class WorldAdditionCreate(BaseModel):
+    text: str=Field(min_length=1)
+
+
+class WorldAdditionEdit(WorldAdditionCreate):
+    expected: str
+
+
+class WorldAdditionResolution(BaseModel):
+    decision: Literal['apply', 'revert']
+    expected: str
 
 
 class CommandRequest(BaseModel):

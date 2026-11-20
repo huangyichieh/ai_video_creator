@@ -407,6 +407,9 @@ class WorkspaceService:
         try:characters=[plain(c) for c in engine.creative.artifact('characters').characters]
         except (OSError,ValueError):pass
         computed={}
+        if page=='world':
+            from backend.services.world_settings import WorldSettingsService
+            computed['worldSettings']=WorldSettingsService(self.manager,pid).snapshot()
         if page=='assets':
             from story_channel.background_library import BackgroundLibrary,locations
             state=engine.load()
@@ -452,6 +455,8 @@ class WorkspaceService:
         from story_channel.cost_estimates import project_cost_estimate
         total,_=project_cost_estimate(self.manager,pid)
         computed['projectCost']=f'{total:.2f}'
+        from backend.services.workspace_status import next_step
+        computed['nextStep']=next_step(self.manager,manifest,page,computed,engine)
         return {'project':plain(manifest),'page':page,'sections':sections,'media':media,'characters':characters,'computed':computed,
             'operations':self.catalog(pid),'modelPreferences':self.model_preferences(pid)}
 

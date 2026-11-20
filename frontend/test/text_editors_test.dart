@@ -141,29 +141,32 @@ void main() {
     },
   );
 
-  testWidgets(
-    'read-only preview uses a bold label beside a locked text field',
-    (tester) async {
-      await tester.pumpWidget(
-        host(
-          ValueEditor(
-            value: {'description': 'A readable description'},
-            readOnly: true,
-            onChanged: (_) => fail('Preview must not edit data'),
-          ),
+  testWidgets('read-only text and numbers are selectable beside bold labels', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        ValueEditor(
+          value: {'description': 'A readable description', 'duration': 3},
+          readOnly: true,
+          onChanged: (_) => fail('Preview must not edit data'),
         ),
-      );
-      final field = find.byType(TextField);
-      final label = find.text('description:');
-      expect(tester.widget<TextField>(field).readOnly, isTrue);
-      expect(tester.widget<Text>(label).style!.fontWeight, FontWeight.bold);
-      expect(
-        tester.getTopLeft(field).dx,
-        greaterThan(tester.getRect(label).right),
-      );
-      expect(tester.takeException(), isNull);
-    },
-  );
+      ),
+    );
+    final field = find.byWidgetPredicate(
+      (widget) =>
+          widget is SelectableText && widget.data == 'A readable description',
+    );
+    final label = find.text('description:');
+    expect(find.byType(TextField), findsNothing);
+    expect(find.byType(SelectableText), findsNWidgets(2));
+    expect(tester.widget<Text>(label).style!.fontWeight, FontWeight.bold);
+    expect(
+      tester.getTopLeft(field).dx,
+      greaterThan(tester.getRect(label).right),
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('label and text field stay beside each other on narrow screens', (
     tester,

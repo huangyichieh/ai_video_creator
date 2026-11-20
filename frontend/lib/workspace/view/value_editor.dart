@@ -120,7 +120,7 @@ class ValueEditor extends StatelessWidget {
         ),
       );
     }
-    if (value is! num) {
+    if (value is! num || readOnly) {
       return ContentTextField(
         label: label,
         value: value?.toString() ?? '',

@@ -38,6 +38,30 @@ The client uses same-origin API URLs in the compiled app. Development supplies `
 
 When starting Uvicorn directly, set `STORY_FRONTEND_WATCH=1` to enable automatic builds. `STORY_FLUTTER_COMMAND` can specify a Flutter executable when it is not on PATH. Multiple rapid edits are combined into one build; build failures wait for the next source change before retrying.
 
+### Build the latest frontend web
+
+**For normal use:** run `.\start.cmd` from the repository root. It builds changed frontend sources automatically and serves the latest successful release. Wait for the build to finish, then refresh the browser (**Ctrl+F5** if the old UI remains). Check `/api/frontend/status` on the printed Story Studio URL for build status and the active release directory. Automatic releases are under `storage/temp/frontend-hosting/`.
+
+**To create web files manually**, run these commands in the VS Code PowerShell terminal from the repository root:
+
+```powershell
+Push-Location frontend
+flutter pub get
+dart run build_runner build
+flutter build web --release --pwa-strategy=none --no-wasm-dry-run
+Pop-Location
+```
+
+| Command | Purpose |
+| --- | --- |
+| `flutter pub get` | Install/update dependencies from the project's dependency configuration and lockfile. |
+| `dart run build_runner build` | Generate the JSON serializers required by the current Dart models. |
+| `flutter build web ...` | Compile the current frontend into release web files, with offline caching disabled. |
+
+After a successful build, the complete website is in **`frontend/build/web/`**. Keep the entire directory together, including `assets/`, JavaScript and `index.html`. The application still needs the FastAPI backend; opening `index.html` directly is insufficient.
+
+Manual output is separate from the backend's automatically managed releases. Use `.\start.cmd` to build and activate changed sources for the hosted app; copying files into `frontend/build/web/` does not replace an already selected cached release. Restart the launcher if it is currently running with frontend watching disabled.
+
 ## Production workspace
 
 The app bar provides the current-project dropdown (including **Add project**), a centered workspace name, generation preferences and API keys. The sidebar shows icons for **World, Assets, Story/Episode, Animation, Final and Analytics**; hover to reveal their names. The browser remembers the last opened project, page and selected episode, validates that they still exist at startup, and restores them automatically. An explicit project URL takes precedence.
@@ -50,6 +74,10 @@ The app bar provides the current-project dropdown (including **Add project**), a
 | Animations | Check assets -> Scene images -> Direction & performance -> Animated scenes -> Voices & input -> VFX / SFX -> AI continuity review |
 | Final | Timeline/compositing -> subtitles -> mixing/finishing -> assembly -> publish approval |
 | Analytics | Generation usage, estimated project costs, provider results and account billing reports |
+
+World settings stack each field's label, short guidance/example, and input, with light-blue outlines for unsaved edits. **Auto generate** beside Premise saves the current draft and fills the six remaining settings fields using the World generation model and default language; the name and premise stay unchanged. Generated details remain editable and unapproved. Save the draft before **AI Review** or **Modify with prompt**. Review suggestions appear side by side: original on the left, editable proposal on the right, with changed lines highlighted. Apply or revert each change (or all changes), then **Approve settings**. Approved settings are read-only; the World name can still be renamed, and new details go under Additional settings.
+
+Additional settings has **Add Setting** above separate Draft and Approved lists. Each draft shows editable Content beside its AI Suggestion. Content autosaves; **AI Review** fills Suggestion. **Apply** replaces Content and clears Suggestion; **Discard** clears Suggestion while keeping Content. These choices persist across refreshes. **Approve** directly approves the current Content, automatically reviewing/checking canon consistency when needed; unapplied suggestions are ignored. Approved settings move into the read-only Approved list. Drafts can be removed; editing content invalidates its previous review. Approved additions cannot be changed or removed.
 
 ```mermaid
 flowchart LR
@@ -64,7 +92,7 @@ flowchart LR
   F -.-> C
 ```
 
-Pages use native Flutter controls and GetX state/navigation. Workspace actions open immediately, prepare current source/version guards, then submit durable background jobs. Changing pages keeps jobs on the server. Task status, stop-after-current-request, results and errors are available in the task list. Advanced domain operations are searchable under **All workspace actions**. Some specialized editors currently use structured field forms; see [migration status and verification](docs/refactor-status.md) before replacing an established production setup.
+Pages use native Flutter controls and GetX state/navigation. Workspace actions open immediately, prepare current source/version guards, then submit durable background jobs. Changing pages keeps jobs on the server. The task icon beside **Generation preferences** opens a right-side panel across projects, with category tabs, live progress, refresh, stop-after-current-request, results and errors. Its badge counts active tasks. Advanced domain operations are searchable under **All workspace actions**. Some specialized editors currently use structured field forms; see [migration status and verification](docs/refactor-status.md) before replacing an established production setup.
 
 ## Files and architecture
 

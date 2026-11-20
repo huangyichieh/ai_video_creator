@@ -1,3 +1,4 @@
+import 'character_tabs.dart';
 import 'package:flutter/material.dart';
 import '../controller/workspace_controller.dart';
 import '../model/workspace_snapshot.dart';
@@ -84,182 +85,141 @@ class CharacterCards extends StatelessWidget {
                       ),
                     ],
                   ),
-                  DefaultTabController(
-                    length: 3,
-                    child: Column(
-                      children: [
-                        const TabBar(
-                          tabs: [
-                            Tab(text: 'Visual'),
-                            Tab(text: 'Voice'),
-                            Tab(text: 'Costumes'),
-                          ],
-                        ),
-                        SizedBox(
-                          height: 440,
-                          child: TabBarView(
+                  CharacterTabs(
+                    storageId: 'character-${controller.projectId.value}-$cid',
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (final image
+                              in snapshot.media
+                                  .where(
+                                    (m) =>
+                                        m.kind == 'image' &&
+                                        m.file.contains(cid) &&
+                                        !m.file.contains('costume'),
+                                  )
+                                  .take(1))
+                            MediaCard(controller.projectId.value, image),
+                          Wrap(
                             children: [
-                              ListView(
-                                children: [
-                                  for (final image
-                                      in snapshot.media
-                                          .where(
-                                            (m) =>
-                                                m.kind == 'image' &&
-                                                m.file.contains(cid) &&
-                                                !m.file.contains('costume'),
-                                          )
-                                          .take(1))
-                                    MediaCard(
-                                      controller.projectId.value,
-                                      image,
-                                    ),
-                                  Wrap(
-                                    children: [
-                                      button(
-                                        'Generate visual',
-                                        'assets.generate',
-                                        {
-                                          'stage': 'character_references',
-                                          'subject': cid,
-                                          'force': true,
-                                        },
-                                      ),
-                                      button(
-                                        'Generation mode / prompt',
-                                        'visual.update',
-                                        {
-                                          'stage': 'character_references',
-                                          'subject': cid,
-                                        },
-                                      ),
-                                      button(
-                                        'Image reference',
-                                        'assets.set_character_image',
-                                        {'subject': cid},
-                                      ),
-                                      button(
-                                        'Design reference (OpenAI)',
-                                        'visual.design_reference',
-                                        {
-                                          'stage': 'character_references',
-                                          'subject': cid,
-                                        },
-                                      ),
-                                      button(
-                                        'Modify',
-                                        'assets.modify_with_openai',
-                                        {
-                                          'stage': 'character_references',
-                                          'subject': cid,
-                                        },
-                                      ),
-                                      button(
-                                        'Saved revisions',
-                                        'assets.revisions',
-                                        {
-                                          'stage': 'character_references',
-                                          'subject': cid,
-                                        },
-                                      ),
-                                      button(
-                                        'Apply revision',
-                                        'asset_revisions.apply_revision',
-                                        {
-                                          'stage': 'character_references',
-                                          'subject': cid,
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                  ValueEditor(
-                                    value: character,
-                                    readOnly: true,
-                                    onChanged: (_) {},
-                                  ),
-                                ],
+                              button('Generate visual', 'assets.generate', {
+                                'stage': 'character_references',
+                                'subject': cid,
+                                'force': true,
+                              }),
+                              button(
+                                'Generation mode / prompt',
+                                'visual.update',
+                                {
+                                  'stage': 'character_references',
+                                  'subject': cid,
+                                },
                               ),
-                              ListView(
-                                children: [
-                                  Wrap(
-                                    children: [
-                                      button(
-                                        'Configure provider Voice ID',
-                                        'identity.save',
-                                        {},
-                                      ),
-                                      button(
-                                        'Generate voice prompt',
-                                        'voice_design.generate_voice_design',
-                                        {'character_id': cid},
-                                      ),
-                                      button(
-                                        'Generate voice sample',
-                                        'library.talking_sample',
-                                        {'character_id': cid, 'video': false},
-                                      ),
-                                      button(
-                                        'Talking animation sample',
-                                        'library.talking_sample',
-                                        {'character_id': cid, 'video': true},
-                                      ),
-                                      button(
-                                        'Approve voice',
-                                        'library.approve_voice',
-                                        {'cid': cid},
-                                      ),
-                                      button(
-                                        'Apply voice revision',
-                                        'library.apply_voice_revision',
-                                        {'character_id': cid},
-                                      ),
-                                    ],
-                                  ),
-                                  for (final media in snapshot.media.where(
-                                    (m) =>
-                                        (m.kind == 'audio' ||
-                                            m.kind == 'video') &&
-                                        m.file.contains(cid),
-                                  ))
-                                    MediaCard(
-                                      controller.projectId.value,
-                                      media,
-                                    ),
-                                ],
+                              button(
+                                'Image reference',
+                                'assets.set_character_image',
+                                {'subject': cid},
                               ),
-                              ListView(
-                                children: [
-                                  button(
-                                    'Edit / add costumes',
-                                    'identity.save',
-                                    {},
-                                  ),
-                                  button(
-                                    'Generate costume',
-                                    'library.generate_costume',
-                                    {'character_id': cid},
-                                  ),
-                                  button(
-                                    'Apply costume revision',
-                                    'library.apply_costume_revision',
-                                    {'character_id': cid},
-                                  ),
-                                  for (final image in snapshot.media.where(
-                                    (m) =>
-                                        m.file.contains('costume') &&
-                                        m.file.contains(cid),
-                                  ))
-                                    MediaCard(
-                                      controller.projectId.value,
-                                      image,
-                                    ),
-                                ],
+                              button(
+                                'Design reference (OpenAI)',
+                                'visual.design_reference',
+                                {
+                                  'stage': 'character_references',
+                                  'subject': cid,
+                                },
+                              ),
+                              button('Modify', 'assets.modify_with_openai', {
+                                'stage': 'character_references',
+                                'subject': cid,
+                              }),
+                              button('Saved revisions', 'assets.revisions', {
+                                'stage': 'character_references',
+                                'subject': cid,
+                              }),
+                              button(
+                                'Apply revision',
+                                'asset_revisions.apply_revision',
+                                {
+                                  'stage': 'character_references',
+                                  'subject': cid,
+                                },
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ),
+                          ValueEditor(
+                            value: character,
+                            readOnly: true,
+                            onChanged: (_) {},
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Wrap(
+                            children: [
+                              button(
+                                'Configure provider Voice ID',
+                                'identity.save',
+                                {},
+                              ),
+                              button(
+                                'Generate voice prompt',
+                                'voice_design.generate_voice_design',
+                                {'character_id': cid},
+                              ),
+                              button(
+                                'Generate voice sample',
+                                'library.talking_sample',
+                                {'character_id': cid, 'video': false},
+                              ),
+                              button(
+                                'Talking animation sample',
+                                'library.talking_sample',
+                                {'character_id': cid, 'video': true},
+                              ),
+                              button('Approve voice', 'library.approve_voice', {
+                                'cid': cid,
+                              }),
+                              button(
+                                'Apply voice revision',
+                                'library.apply_voice_revision',
+                                {'character_id': cid},
+                              ),
+                            ],
+                          ),
+                          for (final media in snapshot.media.where(
+                            (m) =>
+                                (m.kind == 'audio' || m.kind == 'video') &&
+                                m.file.contains(cid),
+                          ))
+                            MediaCard(controller.projectId.value, media),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          button('Edit / add costumes', 'identity.save', {}),
+                          button(
+                            'Generate costume',
+                            'library.generate_costume',
+                            {'character_id': cid},
+                          ),
+                          button(
+                            'Apply costume revision',
+                            'library.apply_costume_revision',
+                            {'character_id': cid},
+                          ),
+                          for (final image in snapshot.media.where(
+                            (m) =>
+                                m.file.contains('costume') &&
+                                m.file.contains(cid),
+                          ))
+                            MediaCard(controller.projectId.value, image),
+                        ],
+                      ),
+                    ],
                   ),
                 ],
               ),

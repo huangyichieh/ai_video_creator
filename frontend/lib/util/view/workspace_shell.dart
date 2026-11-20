@@ -4,6 +4,7 @@ import '../../projects/controller/project_controller.dart';
 import '../../projects/view/project_dialogs.dart';
 import '../../settings/view.dart';
 import '../../workspace/controller/workspace_controller.dart';
+import 'task_panel.dart';
 
 class WorkspaceShell extends StatefulWidget {
   final String title;
@@ -60,8 +61,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         titleSpacing: 8,
         title: LayoutBuilder(
           builder: (context, constraints) {
-            final side = constraints.maxWidth * .34;
             final compact = constraints.maxWidth < 800;
+            final side = constraints.maxWidth * (compact ? .40 : .36);
             return Row(
               children: [
                 SizedBox(
@@ -86,6 +87,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
+                      TaskMenuButton(compact: compact),
                       Obx(() {
                         final ready =
                             projects.selectedProjectId.value.isNotEmpty &&
@@ -95,6 +97,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                         );
                         if (compact) {
                           return IconButton(
+                            constraints: const BoxConstraints.tightFor(
+                              width: 36,
+                              height: 40,
+                            ),
+                            padding: const EdgeInsets.all(6),
                             tooltip: 'Generation preferences',
                             onPressed: ready ? open : null,
                             icon: const Icon(Icons.tune),
@@ -106,6 +113,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                         );
                       }),
                       IconButton(
+                        constraints: compact
+                            ? const BoxConstraints.tightFor(
+                                width: 36,
+                                height: 40,
+                              )
+                            : null,
+                        padding: compact
+                            ? const EdgeInsets.all(6)
+                            : const EdgeInsets.all(8),
                         tooltip: 'API key',
                         icon: const Icon(Icons.key),
                         onPressed: () => Get.dialog(const KeyDialog()),

@@ -7,6 +7,11 @@ class ContentTextField extends StatefulWidget {
   final ValueChanged<String> onChanged;
   final int? minLines, maxLines;
   final bool readOnly;
+  final bool dirty;
+  final bool enabled;
+  final bool stacked;
+  final String? description;
+  final Widget? labelAction;
   const ContentTextField({
     required this.value,
     required this.label,
@@ -14,6 +19,11 @@ class ContentTextField extends StatefulWidget {
     this.minLines,
     this.maxLines,
     this.readOnly = false,
+    this.dirty = false,
+    this.enabled = true,
+    this.stacked = false,
+    this.description,
+    this.labelAction,
     super.key,
   });
 
@@ -42,6 +52,46 @@ class _ContentTextFieldState extends State<ContentTextField> {
 
   @override
   Widget build(BuildContext context) {
+    Widget layout(Widget child) {
+      if (!widget.stacked) return FieldRow(label: widget.label, child: child);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                '${widget.label}:',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              if (widget.labelAction != null) widget.labelAction!,
+            ],
+          ),
+          if (widget.description != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              widget.description!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Semantics(label: widget.label, child: child),
+        ],
+      );
+    }
+
+    if (widget.readOnly) {
+      return layout(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: SelectableText(widget.value),
+        ),
+      );
+    }
     final name = widget.label.toLowerCase().replaceAll(RegExp('[^a-z]'), '');
     final compact =
         name.endsWith('id') ||
@@ -89,12 +139,23 @@ class _ContentTextFieldState extends State<ContentTextField> {
             : description
             ? 10
             : 8);
-    return FieldRow(
-      label: widget.label,
-      child: TextField(
+    return layout(
+      TextField(
         controller: controller,
+        enabled: widget.enabled,
         readOnly: widget.readOnly,
-        decoration: const InputDecoration(),
+        decoration: InputDecoration(
+          enabledBorder: widget.dirty
+              ? const OutlineInputBorder(
+                  borderSide: BorderSide(color: Color(0xff64b5f6), width: 1.5),
+                )
+              : null,
+          focusedBorder: widget.dirty
+              ? const OutlineInputBorder(
+                  borderSide: BorderSide(color: Color(0xff64b5f6), width: 2),
+                )
+              : null,
+        ),
         minLines: min,
         maxLines: max,
         keyboardType: max > 1 ? TextInputType.multiline : TextInputType.text,

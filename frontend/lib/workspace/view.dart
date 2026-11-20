@@ -1,9 +1,7 @@
 import '../util/view/field_row.dart';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../projects/controller/project_controller.dart';
-import '../util/controller/jobs_controller.dart';
 import '../util/model/app_route_parameters.dart';
 import '../util/service/api_client.dart';
 import '../util/view/dialog.dart';
@@ -25,6 +23,9 @@ import 'view/library_cards.dart';
 import 'view/scene_cards.dart';
 import 'view/keyframes_dialog.dart';
 import 'view/workspace_tabs.dart';
+import 'view/workspace_status_row.dart';
+import '../world/view/world_settings_view.dart';
+import '../world/view/additional_settings_view.dart';
 
 const workspaceNames = {
   'world': 'World',
@@ -130,45 +131,20 @@ class WorkspacePage extends StatelessWidget {
                 Text(
                   '${value.project.projectId.substring(0, 8)} · ${value.project.language}',
                 ),
-                Text(
-                  'Project billed cost (USD): ${value.computed['projectCost'] ?? '0.00'}',
-                  style: Theme.of(context).textTheme.bodySmall,
+                WorkspaceStatusRow(
+                  nextStep:
+                      value.computed['nextStep']?.toString() ??
+                      value.computed['nextAction']?['title']?.toString() ??
+                      '—',
+                  cost: value.computed['projectCost']?.toString() ?? '0.00',
                 ),
                 if (value.project.worldProjectId != null)
                   Text(
                     'Target length: ${(value.project.targetDurationSec ~/ 3600).toString().padLeft(2, '0')}:${(value.project.targetDurationSec ~/ 60 % 60).toString().padLeft(2, '0')}:${(value.project.targetDurationSec % 60).toString().padLeft(2, '0')}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
-                if (page == 'world' || page == 'assets')
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      TextButton.icon(
-                        onPressed: () => Get.find<ProjectController>()
-                            .openWorkspace('world'),
-                        icon: const Icon(Icons.public),
-                        label: const Text('World'),
-                      ),
-                      TextButton.icon(
-                        onPressed: () => Get.find<ProjectController>()
-                            .openWorkspace('assets'),
-                        icon: const Icon(Icons.collections_outlined),
-                        label: const Text('Assets'),
-                      ),
-                    ],
-                  ),
                 episodeSelector(controller),
                 const SizedBox(height: 8),
-                jobs(controller),
-                if (value.computed['nextAction'] is Map)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Text(
-                        'Next step:\n${value.computed['nextAction']['title']}',
-                      ),
-                    ),
-                  ),
                 WorkspaceTabs(
                   key: ValueKey('workspace-tabs-$page'),
                   labels: workspaceTabs[page]!,
@@ -178,11 +154,10 @@ class WorkspacePage extends StatelessWidget {
                 const SizedBox(height: 8),
                 quickActions(controller),
                 ...content(controller, value),
-                if (![
-                  'VFX',
-                  'SFX',
-                  'Scene Review & Continuity',
-                ].contains(workspaceTabs[page]![controller.selectedTab.value]))
+                if (page != 'world' &&
+                    !['VFX', 'SFX', 'Scene Review & Continuity'].contains(
+                      workspaceTabs[page]![controller.selectedTab.value],
+                    ))
                   TextButton.icon(
                     onPressed: () => chooseOperation(controller),
                     icon: const Icon(Icons.tune),
@@ -249,112 +224,6 @@ class WorkspacePage extends StatelessWidget {
     );
   }
 
-  Widget jobs(WorkspaceController controller) => Obx(() {
-    final service = Get.find<JobsController>();
-    final list = service.jobs
-        .where((job) => job.projectId == controller.projectId.value)
-        .take(8)
-        .toList();
-    if (list.isEmpty) return const SizedBox.shrink();
-    final active = list.where((job) => job.active).length;
-    return ExpansionTile(
-      key: PageStorageKey('jobs-${controller.projectId.value}'),
-      title: Text('Tasks · $active progressing'),
-      initiallyExpanded: active > 0,
-      children: [
-        for (final job in list)
-          ListTile(
-            dense: true,
-            leading: job.active
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(
-                    job.status == 'failed'
-                        ? Icons.error_outline
-                        : Icons.check_circle_outline,
-                  ),
-            title: Text(job.operation),
-            subtitle: job.progress != null
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        '${job.progress!['percent']}% · ${job.progress!['stage']}',
-                      ),
-                      LinearProgressIndicator(
-                        value:
-                            ((job.progress!['percent'] as num).toDouble() / 100)
-                                .clamp(0, 1),
-                      ),
-                    ],
-                  )
-                : Text(
-                    job.status == 'queued'
-                        ? 'Queuing…'
-                        : job.status == 'running'
-                        ? 'Generating…'
-                        : job.error ?? job.status,
-                  ),
-            trailing: job.active
-                ? IconButton(
-                    tooltip: 'Stop after current task',
-                    onPressed: () => service.stop(job.id),
-                    icon: const Icon(Icons.stop_circle_outlined),
-                  )
-                : IconButton(
-                    tooltip: job.error != null
-                        ? 'Error report'
-                        : 'Browse result',
-                    onPressed: () => Get.dialog(
-                      AlertDialog(
-                        title: Text(job.operation),
-                        content: SizedBox(
-                          width: 500,
-                          child: SingleChildScrollView(
-                            child: FutureBuilder<dynamic>(
-                              future: job.error == null
-                                  ? Get.find<ApiClient>()
-                                        .request('GET', '/api/jobs/${job.id}')
-                                        .then((value) => value['result'])
-                                  : Get.find<ApiClient>().request(
-                                      'GET',
-                                      '/api/projects/${job.projectId}/errors',
-                                    ),
-                              builder: (context, result) =>
-                                  result.connectionState != ConnectionState.done
-                                  ? const Center(
-                                      child: CircularProgressIndicator(),
-                                    )
-                                  : SelectableText(
-                                      const JsonEncoder.withIndent(
-                                        '  ',
-                                      ).convert(
-                                        result.data ??
-                                            result.error?.toString() ??
-                                            job.error,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Get.back(),
-                            child: const Text('Close'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    icon: const Icon(Icons.open_in_new),
-                  ),
-          ),
-      ],
-    );
-  });
-
   Widget quickActions(WorkspaceController controller) {
     final tab = workspaceTabs[page]![controller.selectedTab.value];
     final actions =
@@ -366,16 +235,7 @@ class WorkspacePage extends StatelessWidget {
     ]) => actions.add((title: title, operation: operation, args: args));
     switch (page) {
       case 'world':
-        if (tab == 'World settings') {
-          add('AI Review', 'world.review');
-          add('Apply / revert suggestion', 'world.resolve_base');
-          add('Approve', 'world.approve_base');
-          add('Rename World', 'world.rename');
-        } else {
-          add('Add setting', 'world.add_setting');
-          add('AI Review setting', 'world.review');
-          add('Approve setting', 'world.approve_setting');
-        }
+        return const SizedBox.shrink();
       case 'assets':
         add('Asset generation preferences', 'batch.asset_provider');
         if (tab == 'Character References') {
@@ -493,6 +353,12 @@ class WorkspacePage extends StatelessWidget {
     WorkspaceSnapshot value,
   ) {
     final tab = workspaceTabs[page]![controller.selectedTab.value];
+    if (page == 'world' && tab == 'World settings') {
+      return [WorldSettingsView(controller)];
+    }
+    if (page == 'world' && tab == 'Additional settings') {
+      return [AdditionalSettingsView(controller)];
+    }
     if (page == 'animations' &&
         [
           'Scene images',
@@ -641,14 +507,6 @@ class WorkspacePage extends StatelessWidget {
         ArtifactCard(controller, section),
       if (page == 'animations' && tab == 'Animated scenes')
         ...animatedCards(controller, value),
-      ExpansionTile(
-        key: PageStorageKey('media-${controller.projectId.value}-$tab'),
-        title: const Text('Images / audio / video'),
-        children: [
-          for (final media in value.media)
-            MediaCard(controller.projectId.value, media),
-        ],
-      ),
     ];
   }
 

@@ -42,6 +42,7 @@ def test_world_review_approval_and_native_snapshot(client):
     snapshot=client.get(f'/api/projects/{pid}/workspace/world').json()
     assert snapshot['sections'][0]['id']=='world_setting.json'
     assert snapshot['project']['title']=='Test World'
+    assert snapshot['computed']['nextStep']=='World: AI Review'
     exported=client.get(f'/api/projects/{pid}/exports/outline.json')
     assert exported.status_code==200
     assert exported.headers['content-type'].startswith('text/markdown')
@@ -56,8 +57,11 @@ def test_world_review_approval_and_native_snapshot(client):
         assert job['status']=='succeeded',job
         return job
     run('world.review')
+    assert client.get(f'/api/projects/{pid}/workspace/world').json()['computed']['nextStep']=='World: Apply / revert suggestions'
     run('world.resolve_base',{'decision':'revert','text':''})
+    assert client.get(f'/api/projects/{pid}/workspace/world').json()['computed']['nextStep']=='World: Approve world settings'
     run('world.approve_base')
+    assert client.get(f'/api/projects/{pid}/workspace/world').json()['computed']['nextStep']=='Assets: Add a character'
     run('episodes.create',{'title':'Episode 1','outline':'A keeper finds a memory.','duration':120})
     projects=client.get('/api/projects').json()
     assert len(projects)==2

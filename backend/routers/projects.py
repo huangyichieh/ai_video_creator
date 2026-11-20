@@ -1,5 +1,5 @@
 from fastapi import APIRouter,Request
-from backend.models.api import CreateWorldRequest,DeleteRequest,ArtifactEdit
+from backend.models.api import CreateWorldRequest,DeleteRequest,ArtifactEdit,WorldFormSave,WorldFormResolution,WorldAdditionCreate,WorldAdditionEdit,WorldAdditionResolution
 from pydantic import BaseModel,Field
 
 class PrepareRequest(BaseModel):
@@ -7,6 +7,41 @@ class PrepareRequest(BaseModel):
     arguments: dict=Field(default_factory=dict)
 
 router=APIRouter(prefix='/api/projects',tags=['projects'])
+
+@router.put('/{project_id}/world-settings/additions/{setting_id}/suggestion')
+def resolve_additional_suggestion(project_id:str,setting_id:str,body:WorldAdditionResolution,request:Request):
+    from backend.services.world_settings import WorldSettingsService
+    return WorldSettingsService(request.app.state.service.manager,project_id).resolve_addition(setting_id,body.decision,body.expected)
+
+@router.post('/{project_id}/world-settings/additions',status_code=201)
+def add_world_setting(project_id:str,body:WorldAdditionCreate,request:Request):
+    from backend.services.world_settings import WorldSettingsService
+    return WorldSettingsService(request.app.state.service.manager,project_id).add(body.text)
+
+@router.put('/{project_id}/world-settings/additions/{setting_id}')
+def edit_world_setting(project_id:str,setting_id:str,body:WorldAdditionEdit,request:Request):
+    from backend.services.world_settings import WorldSettingsService
+    return WorldSettingsService(request.app.state.service.manager,project_id).update_addition(setting_id,body.text,body.expected)
+
+@router.delete('/{project_id}/world-settings/additions/{setting_id}')
+def remove_world_setting(project_id:str,setting_id:str,expected:str,request:Request):
+    from backend.services.world_settings import WorldSettingsService
+    return WorldSettingsService(request.app.state.service.manager,project_id).remove_addition(setting_id,expected)
+
+@router.get('/{project_id}/world-settings')
+def world_settings(project_id:str,request:Request):
+    from backend.services.world_settings import WorldSettingsService
+    return WorldSettingsService(request.app.state.service.manager,project_id).snapshot()
+
+@router.put('/{project_id}/world-settings')
+def save_world_settings(project_id:str,body:WorldFormSave,request:Request):
+    from backend.services.world_settings import WorldSettingsService
+    return WorldSettingsService(request.app.state.service.manager,project_id).save(body.settings,body.default_language,body.expected)
+
+@router.post('/{project_id}/world-settings/resolve')
+def resolve_world_settings(project_id:str,body:WorldFormResolution,request:Request):
+    from backend.services.world_settings import WorldSettingsService
+    return WorldSettingsService(request.app.state.service.manager,project_id).resolve(body.settings,body.decision,body.expected)
 
 @router.get('/{project_id}/exports/{name}')
 def export_markdown(project_id:str,name:str,request:Request):
